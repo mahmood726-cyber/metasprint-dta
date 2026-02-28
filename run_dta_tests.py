@@ -36,6 +36,12 @@ SUITES = [
         'requires_browser': True,
         'slow': True,
     },
+    {
+        'name': 'Advanced Features (Viz + Sensitivity + Regression)',
+        'script': 'test_dta_advanced.py',
+        'requires_browser': True,
+        'slow': False,
+    },
 ]
 
 TRANSIENT_RETRIES = 1

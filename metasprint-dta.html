@@ -9854,11 +9854,9 @@ body.dark-mode .input-error { background: #451a1a !important; }
       resultDiv.innerHTML = '<span style="color:var(--danger)">Enter a valid pre-test probability (1-99%)</span>';
       return;
     }
-    // Get pooled PLR/NLR from last analysis
-    const plrEl = document.querySelector('#summaryCards [data-stat="plr"]');
-    const nlrEl = document.querySelector('#summaryCards [data-stat="nlr"]');
-    const plr = plrEl ? parseFloat(plrEl.textContent) : null;
-    const nlr = nlrEl ? parseFloat(nlrEl.textContent) : null;
+    // Get pooled PLR/NLR from last analysis result
+    const plr = (typeof lastAnalysisResult !== 'undefined' && lastAnalysisResult) ? lastAnalysisResult.plr : null;
+    const nlr = (typeof lastAnalysisResult !== 'undefined' && lastAnalysisResult) ? lastAnalysisResult.nlr : null;
     if (!isFinite(plr) || !isFinite(nlr)) {
       resultDiv.innerHTML = '<span style="color:var(--danger)">Run analysis first to compute pooled likelihood ratios</span>';
       return;
