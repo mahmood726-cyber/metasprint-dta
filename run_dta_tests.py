@@ -42,6 +42,12 @@ SUITES = [
         'requires_browser': True,
         'slow': False,
     },
+    {
+        'name': 'Insights DTA Adaptation (8 tabs)',
+        'script': 'test_dta_insights.py',
+        'requires_browser': True,
+        'slow': False,
+    },
 ]
 
 TRANSIENT_RETRIES = 1

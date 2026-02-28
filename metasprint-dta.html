@@ -544,6 +544,7 @@ body.dark-mode #clinicalDisclaimer button { border-color: #fbbf24 !important; co
 }
 .icon-person.benefit { background: var(--success); color: #fff; }
 .icon-person.harm { background: var(--danger); color: #fff; }
+.icon-person.dta-fp { background: #f59e0b; color: #fff; }
 .icon-person.no-effect { background: var(--border); color: var(--text-muted); }
 
 /* --- Insights: Amanah Gap Table --- */
@@ -1604,22 +1605,10 @@ body.dark-mode .input-error { background: #451a1a !important; }
       <!-- Hikmah: Clinical Decision Context -->
       <div class="insight-panel" id="insight-hikmah">
         <h3>Hikmah — Clinical Decision Context</h3>
-        <p class="text-muted" style="margin-bottom:10px">NND (Number Needed to Diagnose) calculator. Enter patient baseline risk to see individualized diagnostic test performance.</p>
-        <div id="hikmahNoData" class="placeholder" style="display:none">Run a DTA analysis to compute Number Needed to Diagnose (NND).</div>
+        <p class="text-muted" style="margin-bottom:10px">NND, PPV/NPV calculator. Adjust disease prevalence to see how diagnostic test accuracy translates to clinical predictions.</p>
+        <div id="hikmahNoData" class="placeholder" style="display:none">Run a DTA analysis to compute Number Needed to Diagnose (NND) and predictive values.</div>
         <div id="hikmahContent" style="display:none">
-          <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px">
-            <div>
-              <label style="font-size:0.82rem;font-weight:600">Baseline Risk (%)</label><br>
-              <input type="number" id="hikmahBaselineRisk" value="20" min="0.1" max="99.9" step="0.1" style="width:100px;padding:6px;border:1px solid var(--border);border-radius:var(--radius)">
-            </div>
-            <div>
-              <label style="font-size:0.82rem;font-weight:600">Time Horizon</label><br>
-              <select id="hikmahTimeHorizon" style="padding:6px;border:1px solid var(--border);border-radius:var(--radius)">
-                <option value="1">1 year</option><option value="2">2 years</option><option value="5" selected>5 years</option><option value="10">10 years</option>
-              </select>
-            </div>
-            <div style="align-self:flex-end"><button onclick="computeHikmahNNT()">Calculate</button></div>
-          </div>
+          <div id="hikmahFormArea"></div>
           <div id="hikmahResults"></div>
         </div>
       </div>
@@ -1676,7 +1665,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
       <!-- Taqwa: Integrity Sentinel -->
       <div class="insight-panel" id="insight-taqwa">
         <h3>Taqwa — Integrity Sentinel</h3>
-        <p class="text-muted" style="margin-bottom:10px">Automated checks for statistical integrity: GRIM test (granularity), sample size consistency, and funding bias indicators.</p>
+        <p class="text-muted" style="margin-bottom:10px">Automated checks for DTA data integrity: 2x2 cell consistency, sensitivity/specificity plausibility, sample size adequacy, and funding bias indicators.</p>
         <div id="taqwaNoData" class="placeholder" style="display:none">Extract study data first to run integrity checks.</div>
         <div id="taqwaContent" style="display:none">
           <button onclick="runTaqwaChecks()" style="margin-bottom:12px">Run Integrity Checks</button>
@@ -1688,7 +1677,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
       <div class="insight-panel" id="insight-dhulm">
         <h3>Dhulm — Health Equity Detector</h3>
         <p class="text-muted" style="margin-bottom:10px">Assesses whether the evidence base represents the populations who bear the disease burden.</p>
-        <div id="dhulmNoData" class="placeholder" style="display:none">Load trial universe or extract study data to assess equity.</div>
+        <div id="dhulmNoData" class="placeholder" style="display:none">Extract study data first to assess population equity. Add demographic or setting descriptors to Notes or Covariate columns for richer analysis.</div>
         <div id="dhulmContent" style="display:none">
           <button onclick="runDhulmEquity()" style="margin-bottom:12px">Assess Representation Equity</button>
           <canvas id="dhulmChart" width="600" height="400" style="max-width:100%" role="img" aria-label="Dhulm evidence gaps chart"></canvas>
@@ -17907,6 +17896,34 @@ body.dark-mode .input-error { background: #451a1a !important; }
     try { return JSON.parse(summary.dataset.lastResult); } catch(e) { return null; }
   }
 
+  // Shared helper: extract DTA-specific fields from lastAnalysisResult
+  function _getDTAInsightsData() {
+    if (typeof lastAnalysisResult === 'undefined' || !lastAnalysisResult) return null;
+    const r = lastAnalysisResult;
+    if (r.pooledSens == null || r.pooledSpec == null) return null;
+    const het = r.heterogeneity ?? {};
+    return {
+      sens: r.pooledSens,
+      spec: r.pooledSpec,
+      sensCI: r.sensCI ?? [r.pooledSens, r.pooledSens],
+      specCI: r.specCI ?? [r.pooledSpec, r.pooledSpec],
+      plr: r.plr ?? (r.pooledSens / (1 - r.pooledSpec)),
+      nlr: r.nlr ?? ((1 - r.pooledSens) / r.pooledSpec),
+      dor: r.dor ?? 0,
+      dorCI: r.dorCI ?? null,
+      I2_sens: het.I2_sens ?? 0,
+      I2_spec: het.I2_spec ?? 0,
+      tau2_sens: het.tau2_sens ?? 0,
+      tau2_spec: het.tau2_spec ?? 0,
+      rho: r.deeks?.rho ?? het.rho ?? null,
+      deeksP: r.deeks?.pValue ?? null,
+      auc: r.auc ?? null,
+      k: r.k ?? 0,
+      studies: r.studies ?? [],
+      method: r.method ?? 'bivariate'
+    };
+  }
+
   // F1: DTA adapter — maps DTA analysis fields to pairwise format for insight panels
   function _getDTAAnalysisForInsights() {
     const r = _getLastAnalysis();
@@ -18134,17 +18151,19 @@ body.dark-mode .input-error { background: #451a1a !important; }
   // 2. MIZAN — Harm-Benefit Equipoise (balance scale)
   // ============================================================
   function initMizan() {
+    // DTA mode: check _getDTAInsightsData first (bypasses DOM-stored studies issue)
+    const dtaData = _getDTAInsightsData();
+    if (dtaData && dtaData.k >= 2) {
+      document.getElementById('mizanNoData').style.display = 'none';
+      document.getElementById('mizanContent').style.display = '';
+      _drawDTAMizanBalance(dtaData);
+      _fillDTAMizanSummary(dtaData);
+      return;
+    }
     const analysis = _getDTAAnalysisForInsights();
     if (!analysis || !analysis.studies || analysis.studies.length < 2) {
       document.getElementById('mizanNoData').style.display = '';
       document.getElementById('mizanContent').style.display = 'none';
-      return;
-    }
-    // F4: DTA mode — harm-benefit balance not applicable to diagnostic accuracy
-    if (analysis.pooledSens !== undefined) {
-      document.getElementById('mizanNoData').style.display = 'none';
-      document.getElementById('mizanContent').style.display = '';
-      document.getElementById('mizanContent').innerHTML = '<p class="text-muted" style="font-size:0.82rem">Harm-benefit balance analysis is designed for intervention studies. For DTA, consider the sensitivity-specificity tradeoff visible in the SROC curve.</p>';
       return;
     }
     document.getElementById('mizanNoData').style.display = 'none';
@@ -18266,6 +18285,173 @@ body.dark-mode .input-error { background: #451a1a !important; }
     ctx.fillText(Math.round(weight * 100) + '%', x, y + 30 + panH / 2);
   }
 
+  // DTA-specific Mizan: Sensitivity vs Specificity balance scale
+  function _drawDTAMizanBalance(d) {
+    const canvas = document.getElementById('mizanCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const w = 600, h = 400;
+    const theme = getThemeColors();
+    ctx.clearRect(0, 0, w, h);
+
+    const sens = d.sens;
+    const spec = d.spec;
+    const diff = sens - spec; // positive = sens higher, negative = spec higher
+    const tiltAngle = Math.max(-0.35, Math.min(0.35, diff * 1.5)); // cap tilt
+
+    const pivotX = w / 2, pivotY = h * 0.50;
+    const beamLen = 200;
+
+    // Colors
+    const sensColor = '#22c55e';
+    const specColor = '#3b82f6';
+
+    // Fulcrum triangle
+    ctx.beginPath();
+    ctx.moveTo(pivotX, pivotY);
+    ctx.lineTo(pivotX - 24, pivotY + 50);
+    ctx.lineTo(pivotX + 24, pivotY + 50);
+    ctx.closePath();
+    ctx.fillStyle = theme.textMuted;
+    ctx.fill();
+
+    // Fulcrum label
+    ctx.fillStyle = theme.textMuted;
+    ctx.font = '11px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('Threshold Trade-off', pivotX, pivotY + 66);
+
+    // Draw beam
+    const lx = pivotX - beamLen * Math.cos(tiltAngle);
+    const ly = pivotY - beamLen * Math.sin(tiltAngle);
+    const rx = pivotX + beamLen * Math.cos(tiltAngle);
+    const ry = pivotY + beamLen * Math.sin(tiltAngle);
+    ctx.beginPath();
+    ctx.moveTo(lx, ly);
+    ctx.lineTo(rx, ry);
+    ctx.strokeStyle = theme.text;
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    // Left pan: Sensitivity (green)
+    _drawDTAPan(ctx, lx, ly, sensColor, 'Sensitivity', sens, theme);
+
+    // Right pan: Specificity (blue)
+    _drawDTAPan(ctx, rx, ry, specColor, 'Specificity', spec, theme);
+
+    // Title
+    ctx.fillStyle = theme.text;
+    ctx.font = 'bold 14px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('Sensitivity vs Specificity Balance', pivotX, 28);
+
+    // Youden J subtitle
+    const youdenJ = sens + spec - 1;
+    ctx.font = '12px system-ui';
+    ctx.fillStyle = theme.textMuted;
+    ctx.fillText('Youden Index (J) = ' + youdenJ.toFixed(3), pivotX, 48);
+  }
+
+  function _drawDTAPan(ctx, x, y, color, label, value, theme) {
+    // Pan strings
+    ctx.beginPath();
+    ctx.moveTo(x - 30, y);
+    ctx.lineTo(x - 30, y + 30);
+    ctx.moveTo(x + 30, y);
+    ctx.lineTo(x + 30, y + 30);
+    ctx.strokeStyle = theme.textMuted;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Pan tray — depth proportional to value
+    const panH = 20 + value * 50;
+    ctx.beginPath();
+    ctx.moveTo(x - 35, y + 30);
+    ctx.quadraticCurveTo(x, y + 30 + panH, x + 35, y + 30);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.fillStyle = color + '22';
+    ctx.fill();
+
+    // Label above pan
+    ctx.fillStyle = color;
+    ctx.font = 'bold 13px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x, y - 10);
+
+    // Percentage inside pan
+    ctx.font = 'bold 14px system-ui';
+    ctx.fillText((value * 100).toFixed(1) + '%', x, y + 30 + panH / 2 + 2);
+  }
+
+  function _fillDTAMizanSummary(d) {
+    const summary = document.getElementById('mizanSummary');
+    if (!summary) return;
+
+    const sens = d.sens;
+    const spec = d.spec;
+    const plr = d.plr;
+    const nlr = d.nlr;
+    const youdenJ = sens + spec - 1;
+
+    // Youden quality color
+    const jColor = youdenJ > 0.5 ? '#16a34a' : youdenJ > 0.3 ? '#d97706' : '#dc2626';
+    const jLabel = youdenJ > 0.5 ? 'Good overall accuracy' : youdenJ > 0.3 ? 'Moderate accuracy' : 'Low accuracy';
+
+    // Clinical role
+    let roleLabel, roleIcon;
+    if (sens > spec + 0.05) {
+      roleLabel = 'Screening test (higher sensitivity favors ruling out disease)';
+      roleIcon = 'SnOUT';
+    } else if (spec > sens + 0.05) {
+      roleLabel = 'Confirmatory test (higher specificity favors ruling in disease)';
+      roleIcon = 'SpIN';
+    } else {
+      roleLabel = 'Balanced test (sensitivity and specificity are comparable)';
+      roleIcon = 'Balanced';
+    }
+
+    // PLR interpretation
+    let plrLabel;
+    if (plr >= 10) plrLabel = 'Strong rule-in (PLR >= 10)';
+    else if (plr >= 5) plrLabel = 'Moderate rule-in (PLR 5-10)';
+    else if (plr >= 2) plrLabel = 'Weak rule-in (PLR 2-5)';
+    else plrLabel = 'Minimal rule-in (PLR < 2)';
+
+    // NLR interpretation
+    let nlrLabel;
+    if (nlr <= 0.1) nlrLabel = 'Strong rule-out (NLR <= 0.1)';
+    else if (nlr <= 0.2) nlrLabel = 'Moderate rule-out (NLR 0.1-0.2)';
+    else if (nlr <= 0.5) nlrLabel = 'Weak rule-out (NLR 0.2-0.5)';
+    else nlrLabel = 'Minimal rule-out (NLR > 0.5)';
+
+    const html =
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:0.82rem">' +
+        '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius, 6px);padding:10px">' +
+          '<div style="font-weight:600;margin-bottom:4px;color:var(--text)">Youden Index (J)</div>' +
+          '<div style="font-size:1.3rem;font-weight:700;color:' + jColor + '">' + youdenJ.toFixed(3) + '</div>' +
+          '<div style="color:var(--text-muted);font-size:0.78rem">' + escapeHtml(jLabel) + '</div>' +
+        '</div>' +
+        '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius, 6px);padding:10px">' +
+          '<div style="font-weight:600;margin-bottom:4px;color:var(--text)">Clinical Role</div>' +
+          '<div style="font-size:1.0rem;font-weight:700;color:var(--primary)">' + escapeHtml(roleIcon) + '</div>' +
+          '<div style="color:var(--text-muted);font-size:0.78rem">' + escapeHtml(roleLabel) + '</div>' +
+        '</div>' +
+        '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius, 6px);padding:10px">' +
+          '<div style="font-weight:600;margin-bottom:4px;color:var(--text)">Positive LR</div>' +
+          '<div style="font-size:1.1rem;font-weight:700;color:' + (plr >= 5 ? '#16a34a' : '#d97706') + '">' + (isFinite(plr) ? plr.toFixed(2) : 'Inf') + '</div>' +
+          '<div style="color:var(--text-muted);font-size:0.78rem">' + escapeHtml(plrLabel) + '</div>' +
+        '</div>' +
+        '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius, 6px);padding:10px">' +
+          '<div style="font-weight:600;margin-bottom:4px;color:var(--text)">Negative LR</div>' +
+          '<div style="font-size:1.1rem;font-weight:700;color:' + (nlr <= 0.2 ? '#16a34a' : '#d97706') + '">' + (isFinite(nlr) ? nlr.toFixed(3) : '0.000') + '</div>' +
+          '<div style="color:var(--text-muted);font-size:0.78rem">' + escapeHtml(nlrLabel) + '</div>' +
+        '</div>' +
+      '</div>';
+    summary.innerHTML = html;
+  }
+
   // ============================================================
   // 3. SHURA — Multiverse Specification Curve
   // ============================================================
@@ -18283,90 +18469,133 @@ body.dark-mode .input-error { background: #451a1a !important; }
 
   function runShuraMultiverse() {
     _getStudies().then(studies => {
-      if (!studies || studies.length < 3) { showToast('Need >= 3 studies', 'warning'); return; }
+      if (!studies || studies.length < 3) { showToast('Need >= 3 studies for multiverse analysis', 'warning'); return; }
 
       const progress = document.getElementById('shuraProgress');
       progress.style.display = '';
-      progress.textContent = 'Running multiverse analysis...';
+      progress.textContent = 'Running DTA multiverse (27 specifications)...';
 
-      // Determine effect type
-      const effectType = studies[0].effectType ?? 'OR';
-      const isRatio = ['OR','RR','HR'].includes(effectType);
+      // Parse raw 2x2 data from extracted studies
+      const rawStudies = studies.map(s => {
+        const tp = parseInt(s.tp), fp = parseInt(s.fp), fn = parseInt(s.fn), tn = parseInt(s.tn);
+        if ([tp, fp, fn, tn].some(v => isNaN(v) || v < 0)) return null;
+        return {
+          tp, fp, fn, tn,
+          authorYear: s.authorYear ?? s.studyId ?? '?',
+          n: tp + fp + fn + tn
+        };
+      }).filter(d => d !== null);
 
-      // Define specification dimensions
-      const estimators = ['DL', 'REML'];
-      const ciMethods = ['Wald', 'HKSJ'];
-      const exclusions = ['none', 'leaveOutLargest', 'leaveOutSmallest'];
+      if (rawStudies.length < 3) { showToast('Need >= 3 studies with valid 2\u00D72 data', 'warning'); progress.style.display = 'none'; return; }
+
+      // DTA multiverse dimensions: 3 models x 3 CC methods x 3 exclusions = 27
+      const models = ['bivariate', 'hsroc', 'univariate'];
+      const ccMethods = ['0.5', 'reciprocal', 'none'];
+      const exclusions = ['all', 'drop-largest', 'drop-smallest'];
+      const confLevel = (v => isFinite(v) ? v : 0.95)(parseFloat(document.getElementById('confLevelSelect')?.value));
 
       const specs = [];
       let specId = 0;
 
-      estimators.forEach(est => {
-        ciMethods.forEach(ci => {
+      models.forEach(model => {
+        ccMethods.forEach(ccLabel => {
           exclusions.forEach(excl => {
-            let subset = [...studies];
-            let exclLabel = 'All studies';
-            if (excl === 'leaveOutLargest') {
-              // Remove study with largest weight
-              const maxW = Math.max(...subset.map(s => 1 / ((s.sei ?? 0.5) ** 2)));
-              const idxMax = subset.findIndex(s => 1 / ((s.sei ?? 0.5) ** 2) === maxW);
-              if (idxMax >= 0) { exclLabel = 'Drop largest'; subset.splice(idxMax, 1); }
-            } else if (excl === 'leaveOutSmallest') {
-              const minW = Math.min(...subset.map(s => 1 / ((s.sei ?? 0.5) ** 2)));
-              const idxMin = subset.findIndex(s => 1 / ((s.sei ?? 0.5) ** 2) === minW);
-              if (idxMin >= 0) { exclLabel = 'Drop smallest'; subset.splice(idxMin, 1); }
+            try {
+              // 1) Apply continuity correction
+              let subset = rawStudies.map(s => ({ ...s }));
+              const ccMethodForPrep = ccLabel === 'none' ? 'exclude' : ccLabel === 'reciprocal' ? 'reciprocal' : 0.5;
+              let prepared = prepareDTAStudyData(subset, ccMethodForPrep);
+
+              if (!prepared || prepared.length < 2) return;
+
+              // 2) Apply exclusion
+              let exclDetail = 'All studies';
+              if (excl === 'drop-largest') {
+                const maxN = Math.max(...prepared.map(s => s.n));
+                const idxMax = prepared.findIndex(s => s.n === maxN);
+                if (idxMax >= 0) { exclDetail = 'Drop ' + (prepared[idxMax].authorYear ?? 'largest'); prepared = [...prepared]; prepared.splice(idxMax, 1); }
+              } else if (excl === 'drop-smallest') {
+                const minN = Math.min(...prepared.map(s => s.n));
+                const idxMin = prepared.findIndex(s => s.n === minN);
+                if (idxMin >= 0) { exclDetail = 'Drop ' + (prepared[idxMin].authorYear ?? 'smallest'); prepared = [...prepared]; prepared.splice(idxMin, 1); }
+              }
+
+              if (prepared.length < 2) return;
+
+              // 3) Run model
+              let pooledSens = NaN, pooledSpec = NaN, dor = NaN, dorLo = NaN, dorHi = NaN;
+
+              if (model === 'bivariate') {
+                const res = improvedBivariatePool(prepared, confLevel);
+                if (!res) return;
+                pooledSens = res.pooledSens; pooledSpec = res.pooledSpec;
+                dor = res.dor; dorLo = res.dorCI[0]; dorHi = res.dorCI[1];
+              } else if (model === 'hsroc') {
+                const res = hsrocModel(prepared, confLevel);
+                if (!res) return;
+                pooledSens = res.sens; pooledSpec = res.spec;
+                dor = res.dor; dorLo = res.dorCI[0]; dorHi = res.dorCI[1];
+              } else {
+                // Univariate DL pooling of log(DOR)
+                const yi = prepared.map(s => s.logDOR);
+                const sei = prepared.map(s => Math.sqrt(s.varLogitSens + s.varLogitSpec));
+                const wi = sei.map(se => 1 / (se * se));
+                const sumW = wi.reduce((a, b) => a + b, 0);
+                const muFE = wi.reduce((s, w, i) => s + w * yi[i], 0) / sumW;
+                const Q = wi.reduce((s, w, i) => s + w * (yi[i] - muFE) ** 2, 0);
+                const C = sumW - wi.reduce((s, w) => s + w * w, 0) / sumW;
+                const tau2 = C > 0 ? Math.max(0, (Q - (prepared.length - 1)) / C) : 0;
+                const wiRE = sei.map(se => 1 / (se * se + tau2));
+                const sumWRE = wiRE.reduce((a, b) => a + b, 0);
+                const muRE = wiRE.reduce((s, w, i) => s + w * yi[i], 0) / sumWRE;
+                const seRE = Math.sqrt(1 / sumWRE);
+                const critVal = prepared.length >= 30 ? normalQuantile(1 - (1 - confLevel) / 2) : tQuantile(1 - (1 - confLevel) / 2, Math.max(1, prepared.length - 1));
+                dor = Math.exp(muRE);
+                dorLo = Math.exp(muRE - critVal * seRE);
+                dorHi = Math.exp(muRE + critVal * seRE);
+                // Approximate Sens/Spec from DOR via symmetry assumption: Sens = Spec = sqrt(DOR)/(1+sqrt(DOR))
+                const sqrtDOR = Math.sqrt(Math.max(0, dor));
+                pooledSens = sqrtDOR / (1 + sqrtDOR);
+                pooledSpec = pooledSens;
+              }
+
+              if (!isFinite(dor) || dor <= 0) return;
+
+              const isDefault = (model === 'bivariate' && ccLabel === '0.5' && excl === 'all');
+
+              specs.push({
+                id: ++specId,
+                model: model,
+                cc: ccLabel === 'none' ? 'Exclude' : ccLabel === 'reciprocal' ? 'Reciprocal' : 'Add 0.5',
+                ccRaw: ccLabel,
+                exclusion: excl === 'all' ? 'All studies' : excl === 'drop-largest' ? 'Drop largest' : 'Drop smallest',
+                exclusionRaw: excl,
+                pooledSens: pooledSens,
+                pooledSpec: pooledSpec,
+                dor: dor,
+                dorLo: dorLo,
+                dorHi: dorHi,
+                k: prepared.length,
+                isDefault: isDefault
+              });
+            } catch (e) {
+              // Skip failed specifications silently
             }
-
-            if (subset.length < 2) return;
-
-            // Run meta-analysis with these specs
-            const yi = subset.map(s => isRatio ? Math.log(s.effect ?? 1) : (s.effect ?? 0));
-            const sei = subset.map(s => s.sei ?? 0.5);
-            const wi = sei.map(se => 1 / (se * se));
-            const sumW = wi.reduce((a, b) => a + b, 0);
-            const muFE = wi.reduce((s, w, i) => s + w * yi[i], 0) / sumW;
-
-            // DL tau2
-            const Q = wi.reduce((s, w, i) => s + w * (yi[i] - muFE) ** 2, 0);
-            const C = sumW - wi.reduce((s, w) => s + w * w, 0) / sumW;
-            let tau2 = est === 'DL' ? Math.max(0, (Q - (subset.length - 1)) / C) : _remlTau2(yi, sei);
-
-            const wiRE = sei.map(se => 1 / (se * se + tau2));
-            const sumWRE = wiRE.reduce((a, b) => a + b, 0);
-            const muRE = wiRE.reduce((s, w, i) => s + w * yi[i], 0) / sumWRE;
-
-            let seRE;
-            if (ci === 'HKSJ' && subset.length > 2) {
-              const qHKSJ = wiRE.reduce((s, w, i) => s + w * (yi[i] - muRE) ** 2, 0) / (subset.length - 1);
-              seRE = Math.sqrt(qHKSJ / sumWRE);
-            } else {
-              seRE = Math.sqrt(1 / sumWRE);
-            }
-
-            const pooled = isRatio ? Math.exp(muRE) : muRE;
-            const lo = isRatio ? Math.exp(muRE - 1.96 * seRE) : muRE - 1.96 * seRE;
-            const hi = isRatio ? Math.exp(muRE + 1.96 * seRE) : muRE + 1.96 * seRE;
-
-            specs.push({
-              id: ++specId,
-              estimator: est,
-              ci: ci,
-              exclusion: exclLabel,
-              pooled: pooled,
-              lo: lo,
-              hi: hi,
-              k: subset.length,
-              tau2: tau2,
-            });
           });
         });
       });
 
-      // Sort by pooled effect
-      specs.sort((a, b) => a.pooled - b.pooled);
+      if (specs.length === 0) {
+        showToast('No valid specifications could be computed', 'warning');
+        progress.style.display = 'none';
+        return;
+      }
 
-      drawShuraCurve(specs, effectType);
-      _renderShuraTable(specs, effectType);
+      // Sort by DOR
+      specs.sort((a, b) => a.dor - b.dor);
+
+      _drawDTAShuraCurve(specs);
+      _renderDTAShuraTable(specs);
       progress.style.display = 'none';
     });
   }
@@ -18393,7 +18622,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     return tau2;
   }
 
-  function drawShuraCurve(specs, effectType) {
+  function _drawDTAShuraCurve(specs) {
     const canvas = document.getElementById('shuraCurve');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -18403,114 +18632,164 @@ body.dark-mode .input-error { background: #451a1a !important; }
 
     if (specs.length === 0) return;
 
-    const isRatio = ['OR','RR','HR'].includes(effectType);
-    const nullLine = isRatio ? 1 : 0;
-    const allVals = specs.flatMap(s => [s.lo, s.hi, s.pooled]);
-    const minV = Math.min(...allVals, nullLine);
-    const maxV = Math.max(...allVals, nullLine);
-    const range = maxV - minV || 1;
-    const padY = 60, padX = 50, padR = 20;
+    // Log-scale for DOR: plot log(DOR) on Y-axis
+    const nullLogDOR = 0; // log(1) = 0
+    const allLogVals = specs.flatMap(s => [Math.log(Math.max(0.01, s.dorLo)), Math.log(Math.max(0.01, s.dorHi)), Math.log(Math.max(0.01, s.dor))]);
+    const minLogV = Math.min(...allLogVals, nullLogDOR) - 0.2;
+    const maxLogV = Math.max(...allLogVals, nullLogDOR) + 0.2;
+    const range = maxLogV - minLogV || 1;
+    const padY = 60, padX = 60, padR = 20;
     const plotW = w - padX - padR;
-    const plotH = h - padY - 40;
+    const plotH = h - padY - 50;
 
-    // X: specification index, Y: effect
+    // X: specification index, Y: log(DOR)
     const xStep = specs.length > 1 ? plotW / (specs.length - 1) : plotW / 2;
-    const toY = v => padY + plotH - ((v - minV) / range) * plotH;
+    const toY = logV => padY + plotH - ((logV - minLogV) / range) * plotH;
 
-    // Null line
-    const nullY = toY(nullLine);
+    // Grid lines and Y-axis labels (show DOR values on natural scale)
+    ctx.fillStyle = theme.textMuted;
+    ctx.font = '10px system-ui';
+    ctx.textAlign = 'right';
+    // Choose nice DOR tick values on log scale
+    const niceLogTicks = [];
+    for (let tick = 0; tick <= 6; tick++) {
+      niceLogTicks.push(minLogV + (tick / 6) * range);
+    }
+    niceLogTicks.forEach(logV => {
+      const y = toY(logV);
+      const dorVal = Math.exp(logV);
+      ctx.fillText(dorVal < 10 ? dorVal.toFixed(2) : dorVal.toFixed(1), padX - 5, y + 3);
+      ctx.beginPath();
+      ctx.moveTo(padX, y);
+      ctx.lineTo(w - padR, y);
+      ctx.strokeStyle = theme.border;
+      ctx.lineWidth = 0.3;
+      ctx.stroke();
+    });
+
+    // Null line at DOR = 1 (log(1) = 0)
+    const nullY = toY(nullLogDOR);
     ctx.beginPath();
     ctx.moveTo(padX, nullY);
     ctx.lineTo(w - padR, nullY);
     ctx.strokeStyle = '#ef4444';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.fillStyle = '#ef4444';
     ctx.font = '10px system-ui';
-    ctx.textAlign = 'right';
-    ctx.fillText(isRatio ? 'Null (1.0)' : 'Null (0)', padX - 5, nullY + 4);
+    ctx.textAlign = 'left';
+    ctx.fillText('DOR = 1 (no diagnostic value)', w - padR + 3, nullY + 4);
 
-    // CI bars
+    // CI bars and points
+    const modelColors = { bivariate: '#2563eb', hsroc: '#8b5cf6', univariate: '#f59e0b' };
     specs.forEach((s, i) => {
-      const x = padX + i * xStep;
-      const yLo = toY(s.lo);
-      const yHi = toY(s.hi);
-      const yPt = toY(s.pooled);
+      const x = padX + (specs.length > 1 ? i * xStep : plotW / 2);
+      const yLo = toY(Math.log(Math.max(0.01, s.dorLo)));
+      const yHi = toY(Math.log(Math.max(0.01, s.dorHi)));
+      const yPt = toY(Math.log(Math.max(0.01, s.dor)));
+      const color = s.isDefault ? '#10b981' : (modelColors[s.model] ?? '#94a3b8');
 
       // CI line
       ctx.beginPath();
       ctx.moveTo(x, yLo);
       ctx.lineTo(x, yHi);
-      ctx.strokeStyle = (s.lo > nullLine || s.hi < nullLine) ? '#10b981' : '#94a3b8';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = s.isDefault ? 3 : 1.5;
       ctx.stroke();
 
       // Point
       ctx.beginPath();
-      ctx.arc(x, yPt, 3, 0, Math.PI * 2);
-      ctx.fillStyle = (s.lo > nullLine || s.hi < nullLine) ? '#10b981' : '#94a3b8';
+      ctx.arc(x, yPt, s.isDefault ? 5 : 3, 0, Math.PI * 2);
+      ctx.fillStyle = color;
       ctx.fill();
     });
-
-    // Y-axis labels
-    ctx.fillStyle = theme.textMuted;
-    ctx.font = '10px system-ui';
-    ctx.textAlign = 'right';
-    for (let tick = 0; tick <= 5; tick++) {
-      const v = minV + (tick / 5) * range;
-      const y = toY(v);
-      ctx.fillText(v.toFixed(2), padX - 5, y + 3);
-      ctx.beginPath();
-      ctx.moveTo(padX, y);
-      ctx.lineTo(w - padR, y);
-      ctx.strokeStyle = theme.border;
-      ctx.lineWidth = 0.5;
-      ctx.stroke();
-    }
 
     // Title
     ctx.fillStyle = theme.text;
     ctx.font = 'bold 13px system-ui';
     ctx.textAlign = 'center';
-    ctx.fillText('Specification Curve (' + specs.length + ' specifications)', w / 2, 20);
+    ctx.fillText('DTA Specification Curve (' + specs.length + ' specifications)', w / 2, 18);
     ctx.font = '11px system-ui';
     ctx.fillStyle = theme.textMuted;
-    ctx.fillText('Green = statistically significant; Gray = includes null', w / 2, 36);
+    ctx.fillText('Sorted by DOR (log scale). Green = default (bivariate, +0.5, all studies)', w / 2, 34);
 
-    // X-axis
+    // Legend
+    const legendX = padX + 10, legendY = padY - 10;
+    const legendItems = [
+      { label: 'Bivariate', color: '#2563eb' },
+      { label: 'HSROC', color: '#8b5cf6' },
+      { label: 'Univariate', color: '#f59e0b' },
+      { label: 'Default', color: '#10b981' }
+    ];
+    ctx.font = '10px system-ui';
+    let lx = legendX;
+    legendItems.forEach(item => {
+      ctx.fillStyle = item.color;
+      ctx.fillRect(lx, legendY - 6, 10, 10);
+      ctx.fillStyle = theme.textMuted;
+      ctx.textAlign = 'left';
+      ctx.fillText(item.label, lx + 13, legendY + 3);
+      lx += ctx.measureText(item.label).width + 28;
+    });
+
+    // X-axis label
     ctx.fillStyle = theme.textMuted;
     ctx.font = '10px system-ui';
     ctx.textAlign = 'center';
-    ctx.fillText('Specification (sorted by effect)', w / 2, h - 5);
+    ctx.fillText('Specification (sorted by DOR)', w / 2, h - 5);
+
+    // Y-axis label
+    ctx.save();
+    ctx.translate(14, padY + plotH / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = theme.textMuted;
+    ctx.font = '11px system-ui';
+    ctx.fillText('Diagnostic Odds Ratio (log scale)', 0, 0);
+    ctx.restore();
   }
 
-  function _renderShuraTable(specs, effectType) {
+  function _renderDTAShuraTable(specs) {
     const container = document.getElementById('shuraTable');
     if (!container) return;
-    const isRatio = ['OR','RR','HR'].includes(effectType);
-    const nullLine = isRatio ? 1 : 0;
 
-    let html = '<table class="amanah-table"><thead><tr><th>#</th><th>Estimator</th><th>CI Method</th><th>Exclusion</th><th>Effect</th><th>95% CI</th><th>k</th><th>Sig?</th></tr></thead><tbody>';
+    let html = '<table class="amanah-table"><thead><tr>' +
+      '<th>#</th><th>Model</th><th>Continuity</th><th>Exclusion</th>' +
+      '<th>Sens</th><th>Spec</th><th>DOR</th><th>DOR CI</th><th>k</th><th>Sig?</th>' +
+      '</tr></thead><tbody>';
     specs.forEach(s => {
-      const sig = (s.lo > nullLine || s.hi < nullLine);
+      const sig = (s.dorLo > 1); // CI entirely above null DOR=1
       const sigDot = sig ? '<span class="shura-dot" style="background:var(--success)"></span>' : '<span class="shura-dot" style="background:var(--border)"></span>';
-      html += '<tr class="shura-row">' +
+      const rowClass = s.isDefault ? 'shura-row shura-default' : 'shura-row';
+      const modelLabel = s.model === 'bivariate' ? 'Bivariate' : s.model === 'hsroc' ? 'HSROC' : 'Univariate';
+      html += '<tr class="' + rowClass + '"' + (s.isDefault ? ' style="background:rgba(16,185,129,0.08);font-weight:600"' : '') + '>' +
         '<td>' + s.id + '</td>' +
-        '<td>' + escapeHtml(s.estimator) + '</td>' +
-        '<td>' + escapeHtml(s.ci) + '</td>' +
+        '<td>' + escapeHtml(modelLabel) + '</td>' +
+        '<td>' + escapeHtml(s.cc) + '</td>' +
         '<td>' + escapeHtml(s.exclusion) + '</td>' +
-        '<td>' + s.pooled.toFixed(3) + '</td>' +
-        '<td>' + s.lo.toFixed(3) + ' \u2013 ' + s.hi.toFixed(3) + '</td>' +
+        '<td>' + (isFinite(s.pooledSens) ? (s.pooledSens * 100).toFixed(1) + '%' : '\u2014') + '</td>' +
+        '<td>' + (isFinite(s.pooledSpec) ? (s.pooledSpec * 100).toFixed(1) + '%' : '\u2014') + '</td>' +
+        '<td>' + (isFinite(s.dor) ? s.dor.toFixed(2) : '\u2014') + '</td>' +
+        '<td>' + (isFinite(s.dorLo) ? s.dorLo.toFixed(2) : '?') + ' \u2013 ' + (isFinite(s.dorHi) ? s.dorHi.toFixed(2) : '?') + '</td>' +
         '<td>' + s.k + '</td>' +
         '<td>' + sigDot + '</td>' +
         '</tr>';
     });
     html += '</tbody></table>';
-    const sigCount = specs.filter(s => s.lo > nullLine || s.hi < nullLine).length;
-    html += '<div style="margin-top:8px;font-size:0.82rem;color:var(--text-muted)">' +
-      sigCount + '/' + specs.length + ' specifications (' + Math.round(sigCount / specs.length * 100) + '%) reach statistical significance.' +
+
+    // Summary statistics
+    const sigCount = specs.filter(s => s.dorLo > 1).length;
+    const dorValues = specs.map(s => s.dor).filter(d => isFinite(d));
+    const dorMin = dorValues.length > 0 ? Math.min(...dorValues) : NaN;
+    const dorMax = dorValues.length > 0 ? Math.max(...dorValues) : NaN;
+    const dorMedian = dorValues.length > 0 ? dorValues.sort((a, b) => a - b)[Math.floor(dorValues.length / 2)] : NaN;
+
+    html += '<div style="margin-top:10px;font-size:0.82rem;color:var(--text-muted)">' +
+      '<strong>' + sigCount + '/' + specs.length + '</strong> specifications (' + Math.round(sigCount / specs.length * 100) + '%) have DOR CI entirely above 1.' +
+      '<br>DOR range: ' + (isFinite(dorMin) ? dorMin.toFixed(2) : '?') + ' \u2013 ' + (isFinite(dorMax) ? dorMax.toFixed(2) : '?') +
+      ' | Median DOR: ' + (isFinite(dorMedian) ? dorMedian.toFixed(2) : '?') +
       '</div>';
     container.innerHTML = html;
   }
@@ -18519,23 +18798,28 @@ body.dark-mode .input-error { background: #451a1a !important; }
   // 4. HIKMAH — Clinical Decision Context (personalized NNT)
   // ============================================================
   function initHikmah() {
+    // DTA mode: check _getDTAInsightsData first (bypasses DOM-stored studies issue)
+    const dtaData = _getDTAInsightsData();
+    if (dtaData && dtaData.k >= 2) {
+      document.getElementById('hikmahNoData').style.display = 'none';
+      document.getElementById('hikmahContent').style.display = '';
+      var formArea = document.getElementById('hikmahFormArea');
+      if (formArea) {
+        formArea.innerHTML = '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;align-items:flex-end">' +
+          '<div><label style="font-size:0.82rem;font-weight:600">Disease Prevalence (%)</label><br>' +
+          '<input type="range" id="hikmahPrevSlider" min="1" max="50" value="20" style="width:200px" ' +
+          'oninput="document.getElementById(\'hikmahPrevVal\').textContent=this.value+\'%\';computeHikmahDTA()">' +
+          ' <span id="hikmahPrevVal" style="font-weight:600">20%</span></div>' +
+          '<div><button onclick="computeHikmahDTA()">Calculate</button></div>' +
+          '</div>';
+      }
+      setTimeout(computeHikmahDTA, 100);
+      return;
+    }
     const analysis = _getDTAAnalysisForInsights();
     if (!analysis || !analysis.studies || analysis.studies.length < 2) {
       document.getElementById('hikmahNoData').style.display = '';
       document.getElementById('hikmahContent').style.display = 'none';
-      return;
-    }
-    // F6: DTA mode — show NND instead of NNT
-    if (analysis.pooledSens !== undefined) {
-      const nnd = analysis.NNT ?? analysis.nnd ?? null;
-      document.getElementById('hikmahNoData').style.display = 'none';
-      document.getElementById('hikmahContent').style.display = '';
-      const container = document.getElementById('hikmahContent');
-      if (nnd && isFinite(nnd)) {
-        container.innerHTML = '<div style="text-align:center;padding:16px"><h4>Number Needed to Diagnose</h4><div style="font-size:2rem;font-weight:700;color:var(--primary)">' + nnd.toFixed(1) + '</div><p class="text-muted" style="font-size:0.82rem">Patients to test for one correct diagnosis above chance</p></div>';
-      } else {
-        container.innerHTML = '<p class="text-muted">NND not available for current analysis.</p>';
-      }
       return;
     }
     const effectType = analysis.effectType ?? 'MD';
@@ -18634,6 +18918,152 @@ body.dark-mode .input-error { background: #451a1a !important; }
     container.innerHTML = html;
   }
 
+  function computeHikmahDTA() {
+    var dtaData = _getDTAInsightsData();
+    if (!dtaData) { showToast('No DTA analysis results', 'warning'); return; }
+
+    var prevPct = parseInt(document.getElementById('hikmahPrevSlider')?.value ?? 20);
+    var prev = prevPct / 100;
+    var sens = dtaData.sens;
+    var spec = dtaData.spec;
+    var sensCI = dtaData.sensCI ?? [sens, sens];
+    var specCI = dtaData.specCI ?? [spec, spec];
+    var youden = sens + spec - 1;
+    var nnd = youden > 0 ? (1 / youden) : Infinity;
+
+    // Predictive values
+    var ppv = (sens * prev) / (sens * prev + (1 - spec) * (1 - prev));
+    var npv = (spec * (1 - prev)) / ((1 - sens) * prev + spec * (1 - prev));
+
+    // Per 1000 patients
+    var diseased = Math.round(prev * 1000);
+    var healthy = 1000 - diseased;
+    var tp = Math.round(diseased * sens);
+    var fn = diseased - tp;
+    var fp = Math.round(healthy * (1 - spec));
+    var tn = healthy - fp;
+
+    // For icon array (100 patients)
+    var d100 = Math.round(prev * 100);
+    var h100 = 100 - d100;
+    var tp100 = Math.round(d100 * sens);
+    var fn100 = d100 - tp100;
+    var fp100 = Math.round(h100 * (1 - spec));
+    var tn100 = h100 - fp100;
+
+    var container = document.getElementById('hikmahResults');
+    if (!container) return;
+
+    var html = '';
+
+    // Card 1: NND
+    html += '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px">';
+    html += '<div style="flex:1;min-width:200px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;text-align:center">';
+    html += '<div style="font-size:0.78rem;font-weight:600;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Number Needed to Diagnose</div>';
+    if (isFinite(nnd) && nnd > 0) {
+      html += '<div style="font-size:2rem;font-weight:700;color:var(--primary)">' + nnd.toFixed(1) + '</div>';
+      html += '<div style="font-size:0.78rem;color:var(--text-muted)">Youden J = ' + youden.toFixed(3) + '</div>';
+      var nndInterp = nnd <= 2 ? 'Excellent discrimination' : nnd <= 5 ? 'Good discrimination' : nnd <= 10 ? 'Moderate discrimination' : 'Weak discrimination';
+      var nndColor = nnd <= 2 ? 'var(--success)' : nnd <= 5 ? '#22c55e' : nnd <= 10 ? '#f59e0b' : 'var(--danger)';
+      html += '<div style="font-size:0.78rem;color:' + nndColor + ';font-weight:600;margin-top:4px">' + escapeHtml(nndInterp) + '</div>';
+    } else {
+      html += '<div style="font-size:1.2rem;font-weight:700;color:var(--danger)">\u221E</div>';
+      html += '<div style="font-size:0.78rem;color:var(--danger)">Test performs at or below chance (Youden J \u2264 0)</div>';
+    }
+    html += '</div>';
+
+    // Card 2: PPV / NPV
+    html += '<div style="flex:1;min-width:200px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;text-align:center">';
+    html += '<div style="font-size:0.78rem;font-weight:600;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Predictive Values at ' + prevPct + '% Prevalence</div>';
+    html += '<div style="display:flex;justify-content:center;gap:24px;margin-top:8px">';
+    html += '<div><div style="font-size:0.72rem;color:var(--text-muted)">PPV</div><div style="font-size:1.4rem;font-weight:700;color:#22c55e">' + (ppv * 100).toFixed(1) + '%</div></div>';
+    html += '<div><div style="font-size:0.72rem;color:var(--text-muted)">NPV</div><div style="font-size:1.4rem;font-weight:700;color:#3b82f6">' + (npv * 100).toFixed(1) + '%</div></div>';
+    html += '</div>';
+    html += '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:8px">PPV = P(disease | test+) &bull; NPV = P(no disease | test\u2212)</div>';
+    html += '</div>';
+
+    // Card 3: Likelihood ratios
+    var plr = dtaData.plr ?? (sens / (1 - spec));
+    var nlr = dtaData.nlr ?? ((1 - sens) / spec);
+    html += '<div style="flex:1;min-width:200px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;text-align:center">';
+    html += '<div style="font-size:0.78rem;font-weight:600;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Likelihood Ratios</div>';
+    html += '<div style="display:flex;justify-content:center;gap:24px;margin-top:8px">';
+    html += '<div><div style="font-size:0.72rem;color:var(--text-muted)">LR+</div><div style="font-size:1.4rem;font-weight:700;color:#f59e0b">' + (isFinite(plr) ? plr.toFixed(1) : '\u221E') + '</div></div>';
+    html += '<div><div style="font-size:0.72rem;color:var(--text-muted)">LR\u2212</div><div style="font-size:1.4rem;font-weight:700;color:#8b5cf6">' + (isFinite(nlr) ? nlr.toFixed(2) : '0') + '</div></div>';
+    html += '</div>';
+    var lrInterp = plr >= 10 ? 'Strong rule-in' : plr >= 5 ? 'Moderate rule-in' : 'Weak rule-in';
+    var nlrInterp = nlr <= 0.1 ? 'Strong rule-out' : nlr <= 0.2 ? 'Moderate rule-out' : 'Weak rule-out';
+    html += '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:8px">' + escapeHtml(lrInterp) + ' &bull; ' + escapeHtml(nlrInterp) + '</div>';
+    html += '</div>';
+    html += '</div>';
+
+    // Icon array: 100 patients
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:16px">';
+    html += '<div style="font-size:0.82rem;font-weight:600;margin-bottom:8px">Visual: 100 patients tested at ' + prevPct + '% prevalence</div>';
+    html += '<div style="display:grid;grid-template-columns:repeat(10,1fr);gap:4px;max-width:380px;margin:0 auto">';
+    var icons = [];
+    for (var i = 0; i < tp100; i++) icons.push({color:'#22c55e', symbol:'&#10003;', title:'True Positive (disease detected)'});
+    for (var i2 = 0; i2 < fn100; i2++) icons.push({color:'#ef4444', symbol:'&#10007;', title:'False Negative (disease missed)'});
+    for (var i3 = 0; i3 < fp100; i3++) icons.push({color:'#f59e0b', symbol:'!', title:'False Positive (false alarm)'});
+    for (var i4 = 0; i4 < tn100; i4++) icons.push({color:'#9ca3af', symbol:'&#9679;', title:'True Negative (correctly cleared)'});
+    icons.forEach(function(ic) {
+      html += '<div title="' + ic.title + '" style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:bold;color:white;background:' + ic.color + ';cursor:default" role="img" aria-label="' + ic.title + '">' + ic.symbol + '</div>';
+    });
+    html += '</div>';
+    // Legend
+    html += '<div style="display:flex;gap:12px;justify-content:center;margin-top:10px;font-size:0.72rem;flex-wrap:wrap">';
+    html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;vertical-align:middle"></span> TP (' + tp100 + ')</span>';
+    html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;vertical-align:middle"></span> FN (' + fn100 + ')</span>';
+    html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#f59e0b;vertical-align:middle"></span> FP (' + fp100 + ')</span>';
+    html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#9ca3af;vertical-align:middle"></span> TN (' + tn100 + ')</span>';
+    html += '</div></div>';
+
+    // Table: outcomes per 1000 patients
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px">';
+    html += '<div style="font-size:0.82rem;font-weight:600;margin-bottom:8px">Outcomes per 1,000 patients tested</div>';
+    html += '<table style="width:100%;font-size:0.82rem;border-collapse:collapse">';
+    html += '<thead><tr style="border-bottom:2px solid var(--border)">' +
+      '<th style="padding:6px 8px;text-align:left">Prevalence</th>' +
+      '<th style="padding:6px 8px;text-align:right">PPV</th>' +
+      '<th style="padding:6px 8px;text-align:right">NPV</th>' +
+      '<th style="padding:6px 8px;text-align:right;color:#22c55e">TP</th>' +
+      '<th style="padding:6px 8px;text-align:right;color:#ef4444">FN</th>' +
+      '<th style="padding:6px 8px;text-align:right;color:#f59e0b">FP</th>' +
+      '<th style="padding:6px 8px;text-align:right;color:#9ca3af">TN</th>' +
+      '</tr></thead><tbody>';
+
+    var prevValues = [5, 10, 15, 20, 30, 40, 50];
+    prevValues.forEach(function(pv) {
+      var p = pv / 100;
+      var dis = Math.round(p * 1000);
+      var hlt = 1000 - dis;
+      var tpN = Math.round(dis * sens);
+      var fnN = dis - tpN;
+      var fpN = Math.round(hlt * (1 - spec));
+      var tnN = hlt - fpN;
+      var ppvN = (sens * p) / (sens * p + (1 - spec) * (1 - p));
+      var npvN = (spec * (1 - p)) / ((1 - sens) * p + spec * (1 - p));
+      var isCurrent = pv === prevPct;
+      var rowStyle = isCurrent ? 'background:rgba(16,185,129,0.08);font-weight:600' : '';
+      html += '<tr style="border-bottom:1px solid var(--border);' + rowStyle + '">' +
+        '<td style="padding:4px 8px">' + pv + '%' + (isCurrent ? ' \u25C0' : '') + '</td>' +
+        '<td style="padding:4px 8px;text-align:right">' + (ppvN * 100).toFixed(1) + '%</td>' +
+        '<td style="padding:4px 8px;text-align:right">' + (npvN * 100).toFixed(1) + '%</td>' +
+        '<td style="padding:4px 8px;text-align:right">' + tpN + '</td>' +
+        '<td style="padding:4px 8px;text-align:right">' + fnN + '</td>' +
+        '<td style="padding:4px 8px;text-align:right">' + fpN + '</td>' +
+        '<td style="padding:4px 8px;text-align:right">' + tnN + '</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table>';
+    html += '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:8px">' +
+      'Sens = ' + (sens * 100).toFixed(1) + '% (' + (sensCI[0] * 100).toFixed(1) + '\u2013' + (sensCI[1] * 100).toFixed(1) + '%) | ' +
+      'Spec = ' + (spec * 100).toFixed(1) + '% (' + (specCI[0] * 100).toFixed(1) + '\u2013' + (specCI[1] * 100).toFixed(1) + '%)</div>';
+    html += '</div>';
+
+    container.innerHTML = html;
+  }
+
   // ============================================================
   // 5. FITRAH — Natural Query Interface
   // ============================================================
@@ -18641,14 +19071,14 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const suggestions = document.getElementById('fitrahSuggestions');
     if (!suggestions) return;
     const queries = [
-      'What is the pooled effect?',
+      'What is the sensitivity?',
+      'What is the specificity?',
+      'Is there a threshold effect?',
+      'What are the likelihood ratios?',
+      'What is the AUC?',
       'Is there publication bias?',
-      'What is the prediction interval?',
       'How heterogeneous is the evidence?',
-      'Which study contributes most?',
-      'Is the result robust?',
-      'What would GRADE say?',
-      'How many patients were studied?',
+      'What is the NND?',
     ];
     suggestions.innerHTML = queries.map(q =>
       '<button class="btn-outline btn-sm" onclick="document.getElementById(\'fitrahQuery\').value=\'' + escapeHtml(q) + '\';runFitrahQuery()">' + escapeHtml(q) + '</button>'
@@ -18679,6 +19109,193 @@ body.dark-mode .input-error { background: #451a1a !important; }
 
     let response = '';
 
+    // DTA-specific query handling
+    const dtaData = _getDTAInsightsData();
+    if (dtaData) {
+      const _sensInterp = v => v > 0.90 ? 'excellent' : v > 0.80 ? 'good' : v > 0.70 ? 'fair' : 'poor';
+      const _specInterp = _sensInterp;
+      const _pct = v => (v * 100).toFixed(1) + '%';
+
+      if (query.includes('sensitivity') || query.includes('sens')) {
+        const interp = _sensInterp(dtaData.sens);
+        response = '<strong>Pooled Sensitivity</strong><br>' +
+          'Pooled Sensitivity: <strong>' + _pct(dtaData.sens) + '</strong> (95% CI: ' +
+          _pct(dtaData.sensCI[0]) + ' \u2013 ' + _pct(dtaData.sensCI[1]) + ')<br>' +
+          'Interpretation: <strong>' + interp + '</strong> (' +
+          (interp === 'excellent' ? '>90% — very few diseased cases are missed' :
+           interp === 'good' ? '80\u201390% — most diseased cases are detected' :
+           interp === 'fair' ? '70\u201380% — a notable proportion of cases may be missed' :
+           '<70% — many diseased cases may go undetected') + ').<br>' +
+          '<span style="font-size:0.78rem;color:var(--text-muted)">Based on ' + dtaData.k + ' studies. I\u00B2<sub>Sens</sub> = ' + dtaData.I2_sens.toFixed(1) + '%.</span>';
+      } else if (query.includes('specificity') || query.includes('spec')) {
+        const interp = _specInterp(dtaData.spec);
+        response = '<strong>Pooled Specificity</strong><br>' +
+          'Pooled Specificity: <strong>' + _pct(dtaData.spec) + '</strong> (95% CI: ' +
+          _pct(dtaData.specCI[0]) + ' \u2013 ' + _pct(dtaData.specCI[1]) + ')<br>' +
+          'Interpretation: <strong>' + interp + '</strong> (' +
+          (interp === 'excellent' ? '>90% — very few healthy individuals are falsely flagged' :
+           interp === 'good' ? '80\u201390% — most healthy individuals are correctly ruled out' :
+           interp === 'fair' ? '70\u201380% — a notable proportion may receive false-positive results' :
+           '<70% — many healthy individuals may be falsely classified as positive') + ').<br>' +
+          '<span style="font-size:0.78rem;color:var(--text-muted)">Based on ' + dtaData.k + ' studies. I\u00B2<sub>Spec</sub> = ' + dtaData.I2_spec.toFixed(1) + '%.</span>';
+      } else if (query.includes('threshold') || query.includes('roc curve') || query.includes('sroc')) {
+        response = '<strong>Threshold Effect</strong><br>';
+        if (dtaData.rho !== null) {
+          const absRho = Math.abs(dtaData.rho);
+          response += 'Spearman correlation between logit(Sens) and logit(1\u2212Spec): <strong>\u03C1 = ' + dtaData.rho.toFixed(3) + '</strong><br>';
+          response += absRho > 0.6 ? '<span style="color:var(--warning)">Evidence of threshold effect</span> \u2014 studies appear to trade sensitivity for specificity at different cut-off values.' :
+            absRho > 0.3 ? '<span style="color:var(--text-muted)">Weak evidence of threshold effect</span> \u2014 modest correlation between sensitivity and specificity trade-offs.' :
+            '<span style="color:var(--success)">No evidence of threshold effect</span> \u2014 variations between studies are not driven by cut-off differences.';
+        } else {
+          response += 'Spearman correlation not available.';
+        }
+        if (dtaData.auc !== null) {
+          response += '<br>SROC AUC: <strong>' + dtaData.auc.toFixed(3) + '</strong>.';
+        }
+      } else if (query.includes('auc') || query.includes('area under')) {
+        response = '<strong>Area Under the SROC Curve (AUC)</strong><br>';
+        if (dtaData.auc !== null) {
+          const aucV = dtaData.auc;
+          const aucInterp = aucV > 0.97 ? 'excellent' : aucV > 0.93 ? 'very good' : aucV > 0.75 ? 'good' : aucV > 0.5 ? 'fair' : 'poor';
+          response += 'AUC = <strong>' + aucV.toFixed(3) + '</strong> (' + aucInterp + ')<br>';
+          response += aucInterp === 'excellent' ? 'The test discriminates extremely well between diseased and non-diseased individuals.' :
+            aucInterp === 'very good' ? 'The test has very good overall discriminatory ability.' :
+            aucInterp === 'good' ? 'The test has good discriminatory ability, though some overlap exists.' :
+            aucInterp === 'fair' ? 'The test has limited discriminatory ability; clinical utility may be questionable.' :
+            'The test performs poorly; consider alternative diagnostic strategies.';
+        } else {
+          response += '<span style="color:var(--text-muted)">AUC not available for current analysis.</span>';
+        }
+      } else if (query.includes('likelihood') || query.includes('plr') || query.includes('nlr') || query.includes('lr+') || query.includes('lr-')) {
+        const plrInterp = dtaData.plr > 10 ? 'strong rule-in' : dtaData.plr > 5 ? 'moderate rule-in' : dtaData.plr > 2 ? 'weak rule-in' : 'minimal';
+        const nlrInterp = dtaData.nlr < 0.1 ? 'strong rule-out' : dtaData.nlr < 0.2 ? 'moderate rule-out' : dtaData.nlr < 0.5 ? 'weak rule-out' : 'minimal';
+        response = '<strong>Likelihood Ratios</strong><br>' +
+          '<table style="font-size:0.84rem;border-collapse:collapse;margin:6px 0">' +
+          '<tr><td style="padding:3px 10px">Positive LR (LR+):</td><td style="padding:3px 10px;font-weight:600">' + dtaData.plr.toFixed(2) + '</td><td style="padding:3px 10px;color:var(--text-muted)">' + plrInterp + '</td></tr>' +
+          '<tr><td style="padding:3px 10px">Negative LR (LR\u2212):</td><td style="padding:3px 10px;font-weight:600">' + dtaData.nlr.toFixed(3) + '</td><td style="padding:3px 10px;color:var(--text-muted)">' + nlrInterp + '</td></tr>' +
+          '</table>' +
+          '<span style="font-size:0.78rem;color:var(--text-muted)">LR+ >10 or LR\u2212 <0.1 is considered clinically decisive. LR+ tells how much a positive test increases disease probability; LR\u2212 tells how much a negative test decreases it.</span>';
+      } else if (query.includes('dor') || query.includes('diagnostic odds')) {
+        const dorInterp = dtaData.dor > 100 ? 'excellent' : dtaData.dor > 25 ? 'very good' : dtaData.dor > 10 ? 'good' : 'fair';
+        response = '<strong>Diagnostic Odds Ratio (DOR)</strong><br>' +
+          'DOR = <strong>' + dtaData.dor.toFixed(2) + '</strong>';
+        if (dtaData.dorCI) {
+          response += ' (95% CI: ' + dtaData.dorCI[0].toFixed(2) + ' \u2013 ' + dtaData.dorCI[1].toFixed(2) + ')';
+        }
+        response += '<br>Interpretation: <strong>' + dorInterp + '</strong>.<br>' +
+          '<span style="font-size:0.78rem;color:var(--text-muted)">DOR combines sensitivity and specificity into a single measure. Higher values indicate better diagnostic performance. DOR >100 = excellent, >25 = very good, >10 = good, <10 = fair.</span>';
+      } else if (query.includes('rule in') || query.includes('ruling in') || query.includes('confirm')) {
+        response = '<strong>Ruling In Disease (SpIN)</strong><br>' +
+          '<strong>Sp</strong>ecificity <strong>I</strong>n: A highly <em>specific</em> test, when positive, rules <strong>in</strong> disease.<br>' +
+          'Specificity: <strong>' + _pct(dtaData.spec) + '</strong> | Positive LR: <strong>' + dtaData.plr.toFixed(2) + '</strong><br>';
+        if (dtaData.spec > 0.95 && dtaData.plr > 10) {
+          response += '<span style="color:var(--success)">This test has strong rule-in capability.</span>';
+        } else if (dtaData.spec > 0.90 && dtaData.plr > 5) {
+          response += '<span style="color:var(--info)">This test has moderate rule-in capability.</span>';
+        } else {
+          response += '<span style="color:var(--warning)">This test has limited rule-in capability. A positive result should be confirmed.</span>';
+        }
+      } else if (query.includes('rule out') || query.includes('ruling out') || query.includes('screen')) {
+        response = '<strong>Ruling Out Disease (SnNOUT)</strong><br>' +
+          '<strong>Sn</strong>sensitivity <strong>OUT</strong>: A highly <em>sensitive</em> test, when negative, rules <strong>out</strong> disease.<br>' +
+          'Sensitivity: <strong>' + _pct(dtaData.sens) + '</strong> | Negative LR: <strong>' + dtaData.nlr.toFixed(3) + '</strong><br>';
+        if (dtaData.sens > 0.95 && dtaData.nlr < 0.1) {
+          response += '<span style="color:var(--success)">This test has strong rule-out capability.</span>';
+        } else if (dtaData.sens > 0.90 && dtaData.nlr < 0.2) {
+          response += '<span style="color:var(--info)">This test has moderate rule-out capability.</span>';
+        } else {
+          response += '<span style="color:var(--warning)">This test has limited rule-out capability. A negative result may not safely exclude disease.</span>';
+        }
+      } else if (query.includes('prevalence') || query.includes('ppv') || query.includes('npv') || query.includes('predictive')) {
+        const prevs = [0.10, 0.20, 0.50];
+        response = '<strong>Predictive Values at Different Prevalences</strong><br>' +
+          '<table style="font-size:0.82rem;border-collapse:collapse;margin:6px 0">' +
+          '<tr style="border-bottom:1px solid var(--border)"><th style="padding:3px 8px;text-align:left">Prevalence</th><th style="padding:3px 8px">PPV</th><th style="padding:3px 8px">NPV</th></tr>';
+        prevs.forEach(prev => {
+          const ppv = (dtaData.sens * prev) / (dtaData.sens * prev + (1 - dtaData.spec) * (1 - prev));
+          const npv = (dtaData.spec * (1 - prev)) / (dtaData.spec * (1 - prev) + (1 - dtaData.sens) * prev);
+          response += '<tr><td style="padding:3px 8px">' + _pct(prev) + '</td>' +
+            '<td style="padding:3px 8px;font-weight:600">' + _pct(ppv) + '</td>' +
+            '<td style="padding:3px 8px;font-weight:600">' + _pct(npv) + '</td></tr>';
+        });
+        response += '</table>' +
+          '<span style="font-size:0.78rem;color:var(--text-muted)">PPV = probability disease is present given a positive test. NPV = probability disease is absent given a negative test. Both depend heavily on prevalence.</span>';
+      } else if (query.includes('nnd') || query.includes('number needed') || query.includes('youden')) {
+        const youdenJ = dtaData.sens + dtaData.spec - 1;
+        const nnd = youdenJ > 0 ? (1 / youdenJ) : null;
+        response = '<strong>Youden Index &amp; Number Needed to Diagnose</strong><br>' +
+          'Youden J = Sens + Spec \u2212 1 = <strong>' + youdenJ.toFixed(3) + '</strong><br>';
+        if (youdenJ > 0.5) {
+          response += '<span style="color:var(--success)">Good discriminatory ability</span>.';
+        } else if (youdenJ > 0.2) {
+          response += '<span style="color:var(--info)">Moderate discriminatory ability</span>.';
+        } else {
+          response += '<span style="color:var(--warning)">Limited discriminatory ability</span>.';
+        }
+        if (nnd !== null) {
+          response += '<br>NND = 1/J = <strong>' + nnd.toFixed(1) + '</strong> \u2014 on average, ' + nnd.toFixed(1) +
+            ' patients need to be tested for one correct net diagnosis (TP without a corresponding FP).';
+        }
+      } else if (query.includes('bias') || query.includes('funnel') || query.includes('egger') || query.includes('deeks')) {
+        response = '<strong>Publication Bias Assessment</strong><br>';
+        if (dtaData.deeksP !== null) {
+          response += 'Deeks\' funnel plot asymmetry test p-value: <strong>' + dtaData.deeksP.toFixed(3) + '</strong>. ';
+          response += dtaData.deeksP < 0.05 ? '<span style="color:var(--danger)">Significant funnel asymmetry detected</span> \u2014 potential publication bias.' :
+            dtaData.deeksP < 0.10 ? '<span style="color:var(--warning)">Borderline funnel asymmetry</span> \u2014 interpret with caution.' :
+            '<span style="color:var(--success)">No significant funnel asymmetry</span>.';
+        } else {
+          response += 'Deeks\' funnel test not available (requires k \u2265 10).';
+        }
+      } else if (query.includes('heterogen') || query.includes('consist') || query.includes('variab')) {
+        const _i2label = v => v < 25 ? 'low' : v < 50 ? 'moderate' : v < 75 ? 'substantial' : 'considerable';
+        response = '<strong>Heterogeneity in DTA</strong><br>' +
+          '<table style="font-size:0.84rem;border-collapse:collapse;margin:6px 0">' +
+          '<tr><td style="padding:3px 10px">I\u00B2 (Sensitivity):</td><td style="padding:3px 10px;font-weight:600">' + dtaData.I2_sens.toFixed(1) + '%</td><td style="padding:3px 10px;color:var(--text-muted)">' + _i2label(dtaData.I2_sens) + '</td></tr>' +
+          '<tr><td style="padding:3px 10px">I\u00B2 (Specificity):</td><td style="padding:3px 10px;font-weight:600">' + dtaData.I2_spec.toFixed(1) + '%</td><td style="padding:3px 10px;color:var(--text-muted)">' + _i2label(dtaData.I2_spec) + '</td></tr>' +
+          '<tr><td style="padding:3px 10px">\u03C4\u00B2 (Sensitivity):</td><td style="padding:3px 10px;font-weight:600">' + dtaData.tau2_sens.toFixed(4) + '</td><td></td></tr>' +
+          '<tr><td style="padding:3px 10px">\u03C4\u00B2 (Specificity):</td><td style="padding:3px 10px;font-weight:600">' + dtaData.tau2_spec.toFixed(4) + '</td><td></td></tr>' +
+          '</table>';
+        if (dtaData.I2_sens > 50 || dtaData.I2_spec > 50) {
+          response += '<span style="color:var(--warning)">Substantial heterogeneity detected. Possible sources: threshold effects, different populations, index test variations, or reference standard differences. Consider subgroup analysis.</span>';
+        }
+      } else if (query.includes('contribut') || query.includes('weight') || query.includes('influent')) {
+        response = '<strong>Study Contributions</strong><br>';
+        if (dtaData.studies && dtaData.studies.length > 0) {
+          const sorted = [...dtaData.studies].sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0));
+          response += '<table style="font-size:0.82rem;border-collapse:collapse">';
+          sorted.slice(0, 5).forEach(s => {
+            response += '<tr><td style="padding:2px 8px">' + escapeHtml(s.label ?? s.studyId ?? '?') + '</td>' +
+              '<td style="padding:2px 8px;font-weight:600">' + ((s.weight ?? 0) * 100).toFixed(1) + '%</td></tr>';
+          });
+          response += '</table>';
+          if (sorted.length > 5) response += '<div style="font-size:0.78rem;color:var(--text-muted)">Showing top 5 of ' + sorted.length + ' studies</div>';
+        }
+      } else if (query.includes('robust') || query.includes('leave') || query.includes('remov')) {
+        response = '<strong>Robustness</strong><br>' +
+          'The multiverse specification curve (Shura tab) tests robustness across 27 DTA-specific specifications. ' +
+          'Leave-one-out analysis is available in the Analyze tab.';
+      } else if (query.includes('grade') || query.includes('certainty') || query.includes('quality')) {
+        response = '<strong>GRADE Certainty</strong><br>' +
+          'GRADE assessment is computed in the Analyze tab. It evaluates 5 domains: Risk of Bias, Inconsistency, Indirectness, Imprecision, and Publication Bias.';
+      } else if (query.includes('patient') || query.includes('sample') || query.includes('how many')) {
+        response = '<strong>Sample Size</strong><br>' +
+          dtaData.k + ' studies included in this diagnostic test accuracy meta-analysis.';
+      } else if (query.includes('pool') || query.includes('effect') || query.includes('result')) {
+        response = '<strong>Pooled DTA Results</strong><br>' +
+          'Sensitivity: <strong>' + _pct(dtaData.sens) + '</strong> (95% CI: ' + _pct(dtaData.sensCI[0]) + ' \u2013 ' + _pct(dtaData.sensCI[1]) + ')<br>' +
+          'Specificity: <strong>' + _pct(dtaData.spec) + '</strong> (95% CI: ' + _pct(dtaData.specCI[0]) + ' \u2013 ' + _pct(dtaData.specCI[1]) + ')<br>' +
+          'DOR: <strong>' + dtaData.dor.toFixed(2) + '</strong>';
+        if (dtaData.dorCI) response += ' (95% CI: ' + dtaData.dorCI[0].toFixed(2) + ' \u2013 ' + dtaData.dorCI[1].toFixed(2) + ')';
+        if (dtaData.auc !== null) response += '<br>AUC: <strong>' + dtaData.auc.toFixed(3) + '</strong>';
+      } else {
+        response = '<div style="color:var(--text-muted)">I can answer questions about: sensitivity, specificity, threshold effect, AUC, likelihood ratios, DOR, rule-in/rule-out, predictive values (PPV/NPV), NND, publication bias, heterogeneity, study weights, robustness, GRADE certainty, and sample size. Try one of the suggestions above.</div>';
+      }
+
+      answer.innerHTML = response;
+      return;
+    }
+
+    // Fallback: pairwise patterns (when no DTA data available)
     if (query.includes('pool') || query.includes('effect') || query.includes('result')) {
       response = '<strong>Pooled Effect</strong><br>' +
         'The pooled ' + effectType + ' across ' + k + ' studies is <strong>' + effect.toFixed(3) + '</strong>';
@@ -18745,6 +19362,18 @@ body.dark-mode .input-error { background: #451a1a !important; }
   // 6. IHSAN — Excellence Visualization (quantile dots, icon arrays, timeline)
   // ============================================================
   function initIhsan() {
+    // DTA mode: check _getDTAInsightsData first (bypasses DOM-stored studies issue)
+    const dtaData = _getDTAInsightsData();
+    if (dtaData && dtaData.k >= 2) {
+      document.getElementById('ihsanNoData').style.display = 'none';
+      document.getElementById('ihsanContent').style.display = '';
+      // Pass a DTA-compatible analysis object
+      const dtaAnalysis = _getDTAAnalysisForInsights() ?? {pooledSens: dtaData.sens, pooledSpec: dtaData.spec, studies: dtaData.studies, effectType: 'DOR', pooledEffect: dtaData.dor};
+      drawQuantileDotPlot(dtaAnalysis);
+      drawIhsanIconArray(dtaAnalysis);
+      drawIhsanTimeline(dtaAnalysis);
+      return;
+    }
     const analysis = _getDTAAnalysisForInsights();
     if (!analysis || !analysis.studies || analysis.studies.length < 2) {
       document.getElementById('ihsanNoData').style.display = '';
@@ -18759,6 +19388,10 @@ body.dark-mode .input-error { background: #451a1a !important; }
   }
 
   function drawQuantileDotPlot(analysis) {
+    if (analysis && analysis.pooledSens !== undefined) {
+      _drawDTAQuantileDotPlot(analysis);
+      return;
+    }
     const canvas = document.getElementById('ihsanDotPlot');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -18879,13 +19512,211 @@ body.dark-mode .input-error { background: #451a1a !important; }
     }
   }
 
+  function _drawDTAQuantileDotPlot(analysis) {
+    const canvas = document.getElementById('ihsanDotPlot');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    const theme = getThemeColors();
+    ctx.clearRect(0, 0, w, h);
+
+    const dtaData = _getDTAInsightsData();
+    if (!dtaData) {
+      ctx.fillStyle = theme.textMuted;
+      ctx.font = '12px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('No DTA data available', w / 2, h / 2);
+      return;
+    }
+
+    const _logit = x => Math.log(x / (1 - x));
+    const _invLogit = x => 1 / (1 + Math.exp(-x));
+
+    // Compute SE on logit scale from CI width
+    const logitSens = _logit(Math.max(0.001, Math.min(0.999, dtaData.sens)));
+    const logitSpec = _logit(Math.max(0.001, Math.min(0.999, dtaData.spec)));
+    const logitSensLo = _logit(Math.max(0.001, Math.min(0.999, dtaData.sensCI[0])));
+    const logitSensHi = _logit(Math.max(0.001, Math.min(0.999, dtaData.sensCI[1])));
+    const logitSpecLo = _logit(Math.max(0.001, Math.min(0.999, dtaData.specCI[0])));
+    const logitSpecHi = _logit(Math.max(0.001, Math.min(0.999, dtaData.specCI[1])));
+    const seSens = (logitSensHi - logitSensLo) / (2 * 1.96);
+    const seSpec = (logitSpecHi - logitSpecLo) / (2 * 1.96);
+
+    const nDots = 20;
+    const sensDots = [];
+    const specDots = [];
+    for (let i = 0; i < nDots; i++) {
+      const p = (i + 0.5) / nDots;
+      const z = _normInv(p);
+      sensDots.push(_invLogit(logitSens + z * seSens));
+      specDots.push(_invLogit(logitSpec + z * seSpec));
+    }
+
+    // Layout: two rows
+    const padL = 80, padR = 20, padT = 30, padB = 10;
+    const plotW = w - padL - padR;
+    const rowH = (h - padT - padB) / 2;
+    const dotR = Math.min(8, (plotW / nDots) * 0.4);
+
+    // Both rows share 0-1 scale
+    const toX = v => padL + v * plotW;
+    const sensY = padT + rowH * 0.5;
+    const specY = padT + rowH + rowH * 0.5;
+
+    // Background
+    ctx.fillStyle = theme.bg ?? '#fff';
+    ctx.fillRect(0, 0, w, h);
+
+    // Title
+    ctx.fillStyle = theme.text;
+    ctx.font = 'bold 12px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('Quantile Dot Plot: Sensitivity & Specificity', w / 2, 16);
+
+    // Helper: draw one row of dots
+    const drawRow = (dots, cy, label, pooled) => {
+      // Axis line
+      ctx.beginPath();
+      ctx.moveTo(padL, cy + dotR + 8);
+      ctx.lineTo(w - padR, cy + dotR + 8);
+      ctx.strokeStyle = theme.border;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // 50% reference line
+      const halfX = toX(0.5);
+      ctx.beginPath();
+      ctx.moveTo(halfX, cy - dotR - 4);
+      ctx.lineTo(halfX, cy + dotR + 8);
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Dots
+      dots.forEach((val, i) => {
+        const x = toX(Math.max(0, Math.min(1, val)));
+        ctx.beginPath();
+        ctx.arc(x, cy - (i % 2) * (dotR * 2.2), dotR, 0, Math.PI * 2);
+        ctx.fillStyle = val >= 0.5 ? '#10b981' : '#ef4444';
+        ctx.globalAlpha = 0.7;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      });
+
+      // Row label
+      ctx.fillStyle = theme.text;
+      ctx.font = 'bold 11px system-ui';
+      ctx.textAlign = 'right';
+      ctx.fillText(label, padL - 6, cy + 4);
+
+      // Pooled value
+      ctx.font = '10px system-ui';
+      ctx.fillStyle = theme.textMuted;
+      ctx.fillText((pooled * 100).toFixed(1) + '%', padL - 6, cy + 16);
+
+      // Tick labels
+      ctx.textAlign = 'center';
+      ctx.font = '9px system-ui';
+      ctx.fillStyle = theme.textMuted;
+      for (let tick = 0; tick <= 4; tick++) {
+        const v = tick / 4;
+        ctx.fillText((v * 100).toFixed(0) + '%', toX(v), cy + dotR + 20);
+      }
+    };
+
+    drawRow(sensDots, sensY, 'Sensitivity', dtaData.sens);
+    drawRow(specDots, specY, 'Specificity', dtaData.spec);
+  }
+
   function drawIhsanIconArray(analysis) {
     const container = document.getElementById('ihsanIconArray');
     if (!container) return;
 
-    // F5: DTA mode — icon arrays display treatment effects, not applicable
+    // F5: DTA mode — diagnostic icon array showing TP/FN/FP/TN
     if (analysis && analysis.pooledSens !== undefined) {
-      container.innerHTML = '<p class="text-muted" style="font-size:0.82rem">Icon arrays display treatment effects. For DTA studies, see the SROC plot and paired forest plots in the Analyze tab.</p>';
+      const dtaData = _getDTAInsightsData();
+      if (!dtaData) { container.innerHTML = '<p class="text-muted">No DTA data available.</p>'; return; }
+
+      const prevOptions = [5, 10, 20, 30, 50];
+      const defaultPrev = 20;
+      const prevId = 'ihsanDtaPrevSelect';
+
+      const _renderDtaIconArray = (prevPct) => {
+        const prev = prevPct / 100;
+        const d100 = Math.round(prev * 100);
+        const h100 = 100 - d100;
+        const tp = Math.round(d100 * dtaData.sens);
+        const fn = d100 - tp;
+        const fp = Math.round(h100 * (1 - dtaData.spec));
+        const tn = h100 - fp;
+
+        let html = '<div style="font-size:0.82rem;margin-bottom:8px">' +
+          '<strong>Diagnostic Test Outcomes</strong> at ' +
+          '<select id="' + prevId + '" style="font-size:0.82rem;padding:1px 4px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">';
+        prevOptions.forEach(p => {
+          html += '<option value="' + p + '"' + (p === prevPct ? ' selected' : '') + '>' + p + '%</option>';
+        });
+        html += '</select> prevalence (per 100 patients):</div>';
+
+        // Build the 10x10 grid
+        // Order: TP first, then FN, then FP, then TN
+        html += '<div class="icon-array-grid" style="margin-bottom:8px">';
+        for (let i = 0; i < 100; i++) {
+          let cls, symbol;
+          if (i < tp) {
+            // True Positive — correctly detected
+            cls = 'benefit';
+            symbol = '\u2713';
+          } else if (i < tp + fn) {
+            // False Negative — missed
+            cls = 'harm';
+            symbol = '\u2717';
+          } else if (i < tp + fn + fp) {
+            // False Positive — false alarm
+            cls = 'dta-fp';
+            symbol = '!';
+          } else {
+            // True Negative — correctly cleared
+            cls = 'no-effect';
+            symbol = '\u00B7';
+          }
+          html += '<div class="icon-person ' + cls + '" title="' +
+            (i < tp ? 'True Positive' : i < tp + fn ? 'False Negative' : i < tp + fn + fp ? 'False Positive' : 'True Negative') +
+            '">' + symbol + '</div>';
+        }
+        html += '</div>';
+
+        // Summary
+        html += '<div style="font-size:0.80rem;margin-bottom:6px">' +
+          'Of <strong>100</strong> patients at <strong>' + prevPct + '%</strong> prevalence: ' +
+          '<strong style="color:var(--success)">' + tp + '</strong> correctly detected (TP), ' +
+          '<strong style="color:var(--danger)">' + fn + '</strong> missed (FN), ' +
+          '<strong style="color:#f59e0b">' + fp + '</strong> false alarms (FP), ' +
+          '<strong style="color:var(--text-muted)">' + tn + '</strong> correctly cleared (TN).</div>';
+
+        // Legend
+        html += '<div style="font-size:0.76rem;color:var(--text-muted);display:flex;gap:12px;flex-wrap:wrap">' +
+          '<span><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:var(--success);vertical-align:middle"></span> TP (detected)</span>' +
+          '<span><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:var(--danger);vertical-align:middle"></span> FN (missed)</span>' +
+          '<span><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:#f59e0b;vertical-align:middle"></span> FP (false alarm)</span>' +
+          '<span><span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:var(--border);vertical-align:middle"></span> TN (cleared)</span>' +
+          '</div>';
+
+        return html;
+      };
+
+      const _updateDtaIconArray = (prevPct) => {
+        container.innerHTML = _renderDtaIconArray(prevPct);
+        const sel = document.getElementById(prevId);
+        if (sel) {
+          sel.addEventListener('change', function() {
+            _updateDtaIconArray(parseInt(this.value));
+          });
+        }
+      };
+      _updateDtaIconArray(defaultPrev);
       return;
     }
 
@@ -19177,54 +20008,82 @@ body.dark-mode .input-error { background: #451a1a !important; }
   }
 
   function runTaqwaChecks() {
-    _getStudies().then(studies => {
+    _getStudies().then(function(studies) {
       if (!studies || studies.length < 1) { showToast('No studies to check', 'warning'); return; }
 
-      const results = {
-        grim: [],
+      var results = {
+        cellConsistency: [],
+        sensSpecPlausibility: [],
         sampleSize: [],
         funding: [],
       };
 
-      studies.forEach(s => {
-        const label = s.authorYear ?? s.studyId ?? '?';
-        const n = s.n ?? null;
+      studies.forEach(function(s) {
+        var label = s.authorYear ?? s.studyId ?? '?';
+        var tp = parseInt(s.tp);
+        var fp = parseInt(s.fp);
+        var fn = parseInt(s.fn);
+        var tn = parseInt(s.tn);
+        var has2x2 = [tp, fp, fn, tn].every(function(v) { return !isNaN(v); });
 
-        // GRIM test: check if reported means are consistent with sample size
-        // GRIM checks if mean * n is approximately integer
-        if (n !== null && n > 0 && s.effect !== null && s.effect !== undefined) {
-          const effectVal = parseFloat(s.effect);
-          if (Number.isFinite(effectVal)) {
-            // For means with 2 decimal places
-            const product = effectVal * n;
-            const rounded = Math.round(product * 100) / 100;
-            const diff = Math.abs(product - Math.round(product));
-            // GRIM only applies to means of integer-valued data
-            // Flag if the rounding is suspicious (not perfectly integer-consistent)
-            if (n < 100 && diff > 0.01 && diff < 0.99) {
-              results.grim.push({ study: label, n: n, value: effectVal, product: product,
-                flag: 'Possible GRIM inconsistency (mean * N not integer-compatible)' });
+        if (has2x2) {
+          // Check 1: Cell Consistency
+          var totalN = tp + fp + fn + tn;
+          var diseased = tp + fn;
+          var healthy = fp + tn;
+
+          if (tp < 0 || fp < 0 || fn < 0 || tn < 0) {
+            results.cellConsistency.push({ study: label, flag: 'Negative cell value detected (tp=' + tp + ', fp=' + fp + ', fn=' + fn + ', tn=' + tn + ')', severity: 'fail' });
+          }
+          if (diseased === 0) {
+            results.cellConsistency.push({ study: label, flag: 'No diseased patients (TP+FN=0) \u2014 degenerate 2\u00D72 table', severity: 'fail' });
+          }
+          if (healthy === 0) {
+            results.cellConsistency.push({ study: label, flag: 'No healthy patients (FP+TN=0) \u2014 degenerate 2\u00D72 table', severity: 'fail' });
+          }
+
+          // Check 2: Sensitivity/Specificity Plausibility
+          if (diseased > 0 && healthy > 0) {
+            var sens = tp / diseased;
+            var spec = tn / healthy;
+
+            if (sens === 1.0 && fn === 0) {
+              results.sensSpecPlausibility.push({ study: label, flag: 'Perfect sensitivity (1.000) \u2014 zero FN, may need continuity correction', severity: 'warn' });
+            }
+            if (spec === 1.0 && fp === 0) {
+              results.sensSpecPlausibility.push({ study: label, flag: 'Perfect specificity (1.000) \u2014 zero FP, may need continuity correction', severity: 'warn' });
+            }
+            if (sens === 0) {
+              results.sensSpecPlausibility.push({ study: label, flag: 'Zero sensitivity \u2014 test detects no true cases (TP=0)', severity: 'fail' });
+            }
+            if (spec === 0) {
+              results.sensSpecPlausibility.push({ study: label, flag: 'Zero specificity \u2014 test produces only false positives (TN=0)', severity: 'fail' });
+            }
+            if (sens < 0.50 && spec < 0.50) {
+              results.sensSpecPlausibility.push({ study: label, flag: 'Both Sens (' + (sens * 100).toFixed(1) + '%) and Spec (' + (spec * 100).toFixed(1) + '%) below 50% \u2014 worse than chance, likely data error', severity: 'fail' });
             }
           }
+
+          // Check 3: Sample Size Adequacy
+          if (totalN < 30) {
+            results.sampleSize.push({ study: label, n: totalN, flag: 'Total N = ' + totalN + ' (< 30) \u2014 underpowered DTA study', severity: 'warn' });
+          }
+          if (diseased > 0 && diseased < 10) {
+            results.sampleSize.push({ study: label, n: diseased, flag: 'Only ' + diseased + ' diseased patients (< 10) \u2014 unstable sensitivity estimate', severity: 'warn' });
+          }
+          if (healthy > 0 && healthy < 10) {
+            results.sampleSize.push({ study: label, n: healthy, flag: 'Only ' + healthy + ' healthy patients (< 10) \u2014 unstable specificity estimate', severity: 'warn' });
+          }
+        } else {
+          results.cellConsistency.push({ study: label, flag: 'Missing or invalid 2\u00D72 data (tp/fp/fn/tn not all present)', severity: 'warn' });
         }
 
-        // Sample size checks
-        if (n !== null) {
-          if (n < 10) {
-            results.sampleSize.push({ study: label, n: n, flag: 'Very small sample (n < 10) - underpowered' });
-          }
-          // Check if n is suspiciously round (exact multiples of 100)
-          if (n > 50 && n % 100 === 0) {
-            results.sampleSize.push({ study: label, n: n, flag: 'Exactly round sample size (' + n + ') - verify not estimated' });
-          }
-        }
-
-        // Funding bias proxy: check for industry-sounding names
-        const titleLower = (s.title ?? s.label ?? '').toLowerCase();
-        const industryKeywords = ['pharma', 'novartis', 'pfizer', 'astrazeneca', 'merck', 'bayer', 'boehringer', 'sanofi', 'lilly', 'gsk', 'abbott', 'amgen', 'bristol'];
-        const matchedFunding = industryKeywords.filter(kw => titleLower.includes(kw));
+        // Check 4: Funding bias proxy (kept from pairwise, still relevant)
+        var titleLower = (s.title ?? s.label ?? s.authorYear ?? '').toLowerCase();
+        var industryKeywords = ['pharma', 'novartis', 'pfizer', 'astrazeneca', 'merck', 'bayer', 'boehringer', 'sanofi', 'lilly', 'gsk', 'abbott', 'amgen', 'bristol', 'roche', 'siemens', 'beckman', 'ortho', 'hologic', 'qiagen', 'cepheid', 'biorad'];
+        var matchedFunding = industryKeywords.filter(function(kw) { return titleLower.includes(kw); });
         if (matchedFunding.length > 0) {
-          results.funding.push({ study: label, keywords: matchedFunding, flag: 'Possible industry involvement detected in title' });
+          results.funding.push({ study: label, keywords: matchedFunding, flag: 'Possible industry involvement detected' });
         }
       });
 
@@ -19233,44 +20092,55 @@ body.dark-mode .input-error { background: #451a1a !important; }
   }
 
   function _renderTaqwaResults(results, totalStudies) {
-    const container = document.getElementById('taqwaResults');
+    var container = document.getElementById('taqwaResults');
     if (!container) return;
 
-    let html = '';
+    var html = '';
 
-    // GRIM Test
-    html += '<div class="taqwa-card"><h4>GRIM Test (Granularity-Related Inconsistency of Means)</h4>';
-    if (results.grim.length === 0) {
-      html += '<div class="taqwa-flag"><span class="taqwa-flag-icon pass">&#10003;</span> No GRIM inconsistencies detected in ' + totalStudies + ' studies</div>';
+    // Card 1: 2x2 Cell Consistency
+    html += '<div class="taqwa-card"><h4>2\u00D72 Cell Consistency</h4>';
+    if (results.cellConsistency.length === 0) {
+      html += '<div class="taqwa-flag"><span class="taqwa-flag-icon pass">&#10003;</span> All ' + totalStudies + ' studies have valid 2\u00D72 tables</div>';
     } else {
-      results.grim.forEach(g => {
-        html += '<div class="taqwa-flag"><span class="taqwa-flag-icon warn">!</span> ' +
-          '<strong>' + escapeHtml(g.study) + '</strong>: ' + escapeHtml(g.flag) +
-          ' (n=' + g.n + ', value=' + g.value.toFixed(3) + ')</div>';
+      results.cellConsistency.forEach(function(c) {
+        var icon = c.severity === 'fail' ? '<span class="taqwa-flag-icon fail">&#10007;</span>' : '<span class="taqwa-flag-icon warn">!</span>';
+        html += '<div class="taqwa-flag">' + icon + ' <strong>' + escapeHtml(c.study) + '</strong>: ' + escapeHtml(c.flag) + '</div>';
       });
     }
     html += '</div>';
 
-    // Sample Size
-    html += '<div class="taqwa-card"><h4>Sample Size Plausibility</h4>';
+    // Card 2: Sensitivity/Specificity Plausibility
+    html += '<div class="taqwa-card"><h4>Sensitivity / Specificity Plausibility</h4>';
+    if (results.sensSpecPlausibility.length === 0) {
+      html += '<div class="taqwa-flag"><span class="taqwa-flag-icon pass">&#10003;</span> All sensitivity and specificity values are plausible</div>';
+    } else {
+      results.sensSpecPlausibility.forEach(function(sp) {
+        var icon = sp.severity === 'fail' ? '<span class="taqwa-flag-icon fail">&#10007;</span>' : '<span class="taqwa-flag-icon warn">!</span>';
+        html += '<div class="taqwa-flag">' + icon + ' <strong>' + escapeHtml(sp.study) + '</strong>: ' + escapeHtml(sp.flag) + '</div>';
+      });
+    }
+    html += '</div>';
+
+    // Card 3: Sample Size Adequacy
+    html += '<div class="taqwa-card"><h4>Sample Size Adequacy</h4>';
     if (results.sampleSize.length === 0) {
-      html += '<div class="taqwa-flag"><span class="taqwa-flag-icon pass">&#10003;</span> All sample sizes appear plausible</div>';
+      html += '<div class="taqwa-flag"><span class="taqwa-flag-icon pass">&#10003;</span> All studies have adequate sample sizes</div>';
     } else {
-      results.sampleSize.forEach(s => {
+      results.sampleSize.forEach(function(ss) {
         html += '<div class="taqwa-flag"><span class="taqwa-flag-icon warn">!</span> ' +
-          '<strong>' + escapeHtml(s.study) + '</strong>: ' + escapeHtml(s.flag) + '</div>';
+          '<strong>' + escapeHtml(ss.study) + '</strong>: ' + escapeHtml(ss.flag) + '</div>';
       });
     }
     html += '</div>';
 
-    // Funding Bias
+    // Card 4: Funding Bias Indicators
     html += '<div class="taqwa-card"><h4>Funding Bias Indicators</h4>';
     if (results.funding.length === 0) {
-      html += '<div class="taqwa-flag"><span class="taqwa-flag-icon pass">&#10003;</span> No industry funding indicators detected in study titles</div>';
+      html += '<div class="taqwa-flag"><span class="taqwa-flag-icon pass">&#10003;</span> No industry funding indicators detected in study labels</div>';
     } else {
-      const pct = Math.round(results.funding.length / totalStudies * 100);
+      var pct = Math.round(results.funding.length / totalStudies * 100);
       html += '<div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:6px">' + results.funding.length + '/' + totalStudies + ' studies (' + pct + '%) have industry indicators</div>';
-      results.funding.forEach(f => {
+      results.funding.forEach(function(f) {
         html += '<div class="taqwa-flag"><span class="taqwa-flag-icon warn">!</span> ' +
           '<strong>' + escapeHtml(f.study) + '</strong>: ' + escapeHtml(f.flag) +
           ' (' + f.keywords.join(', ') + ')</div>';
@@ -19279,12 +20149,14 @@ body.dark-mode .input-error { background: #451a1a !important; }
     html += '</div>';
 
     // Overall summary
-    const totalFlags = results.grim.length + results.sampleSize.length + results.funding.length;
-    const overallIcon = totalFlags === 0 ? 'pass' : totalFlags <= 3 ? 'warn' : 'fail';
-    const overallLabel = totalFlags === 0 ? 'No integrity flags' : totalFlags + ' flag' + (totalFlags > 1 ? 's' : '') + ' detected';
+    var totalFlags = results.cellConsistency.length + results.sensSpecPlausibility.length + results.sampleSize.length + results.funding.length;
+    var failCount = results.cellConsistency.filter(function(c) { return c.severity === 'fail'; }).length +
+                    results.sensSpecPlausibility.filter(function(c) { return c.severity === 'fail'; }).length;
+    var overallIcon = totalFlags === 0 ? 'pass' : failCount > 0 ? 'fail' : 'warn';
+    var overallLabel = totalFlags === 0 ? 'No integrity flags' : totalFlags + ' flag' + (totalFlags > 1 ? 's' : '') + ' detected' + (failCount > 0 ? ' (' + failCount + ' critical)' : '');
     html = '<div style="margin-bottom:12px"><div class="taqwa-flag"><span class="taqwa-flag-icon ' + overallIcon + '">' +
       (overallIcon === 'pass' ? '&#10003;' : overallIcon === 'warn' ? '!' : '&#10007;') + '</span> ' +
-      '<strong>' + overallLabel + '</strong> across ' + totalStudies + ' studies</div></div>' + html;
+      '<strong>' + escapeHtml(overallLabel) + '</strong> across ' + totalStudies + ' studies</div></div>' + html;
 
     container.innerHTML = html;
   }
@@ -19293,9 +20165,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
   // 9. DHULM — Health Equity Detector
   // ============================================================
   function initDhulm() {
-    const hasUniverse = typeof universeTrialsCache !== 'undefined' && universeTrialsCache.length > 0;
     _getStudies().then(studies => {
-      if (!hasUniverse && (!studies || studies.length < 1)) {
+      if (!studies || studies.length < 1) {
         document.getElementById('dhulmNoData').style.display = '';
         document.getElementById('dhulmContent').style.display = 'none';
         return;
@@ -19306,37 +20177,109 @@ body.dark-mode .input-error { background: #451a1a !important; }
   }
 
   function runDhulmEquity() {
-    const trials = typeof universeTrialsCache !== 'undefined' ? universeTrialsCache : [];
+    _getStudies().then(studies => {
+      if (!studies || studies.length === 0) {
+        showToast('No studies extracted yet', 'warning');
+        return;
+      }
 
-    // Simulate equity metrics based on trial characteristics
-    // In production, these would come from actual demographic data
-    const equityDomains = [
-      { name: 'Women', trialRepresentation: _estimateRepresentation(trials, 'women'), populationBurden: 48, color: '#ec4899' },
-      { name: 'Elderly (>75y)', trialRepresentation: _estimateRepresentation(trials, 'elderly'), populationBurden: 35, color: '#8b5cf6' },
-      { name: 'Black/African', trialRepresentation: _estimateRepresentation(trials, 'black'), populationBurden: 18, color: '#f59e0b' },
-      { name: 'Hispanic/Latino', trialRepresentation: _estimateRepresentation(trials, 'hispanic'), populationBurden: 14, color: '#14b8a6' },
-      { name: 'Asian', trialRepresentation: _estimateRepresentation(trials, 'asian'), populationBurden: 12, color: '#ef4444' },
-      { name: 'Low Income', trialRepresentation: _estimateRepresentation(trials, 'lowincome'), populationBurden: 30, color: '#6366f1' },
-      { name: 'Rural', trialRepresentation: _estimateRepresentation(trials, 'rural'), populationBurden: 20, color: '#10b981' },
-    ];
+      // DTA-relevant equity categories — parsed from study notes/covariate fields
+      const equityCategories = [
+        { name: 'Women/Female', group: 'women', color: '#ec4899' },
+        { name: 'Elderly (>65y)', group: 'elderly', color: '#8b5cf6' },
+        { name: 'Pediatric', group: 'pediatric', color: '#f59e0b' },
+        { name: 'Emergency/ICU', group: 'emergency', color: '#ef4444' },
+        { name: 'Outpatient', group: 'outpatient', color: '#14b8a6' },
+        { name: 'Inpatient', group: 'inpatient', color: '#6366f1' },
+        { name: 'Rural/Community', group: 'rural', color: '#10b981' },
+      ];
 
-    drawDhulmChart(equityDomains);
-    _renderDhulmReport(equityDomains, trials.length);
+      const equityDomains = equityCategories.map(cat => ({
+        name: cat.name,
+        pctStudies: _estimateRepresentation(studies, cat.group),
+        color: cat.color,
+      }));
+
+      const allNoData = equityDomains.every(d => d.pctStudies === -1);
+
+      // Compute Reporting Equity Score: fraction of studies with ANY notes or covariate data
+      const studiesWithDescriptors = studies.filter(s => {
+        const notes = (s.notes ?? '').trim();
+        const cov = (s.covariate ?? '').trim();
+        return notes.length > 0 || cov.length > 0;
+      }).length;
+      const reportingEquityScore = studies.length > 0 ? studiesWithDescriptors / studies.length : 0;
+
+      if (allNoData) {
+        // No equity data extractable — show guidance message
+        const canvas = document.getElementById('dhulmChart');
+        if (canvas) {
+          const ctx = canvas.getContext('2d');
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        const container = document.getElementById('dhulmReport');
+        if (container) {
+          let html = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px">';
+          html += '<h4 style="margin-bottom:8px;color:var(--warning)">No Population Data Available</h4>';
+          html += '<p style="font-size:0.85rem;margin-bottom:8px">Equity data is not extractable from 2x2 tables alone. ' +
+            'Add population descriptors to the <strong>Covariate</strong> or <strong>Notes</strong> columns for equity analysis.</p>';
+          html += '<p style="font-size:0.82rem;margin-bottom:6px"><strong>Examples of useful descriptors:</strong></p>';
+          html += '<ul style="font-size:0.82rem;padding-left:20px;margin-bottom:8px">';
+          html += '<li>female, women, elderly, geriatric, pediatric, children</li>';
+          html += '<li>emergency, ED, ICU, outpatient, inpatient, hospital</li>';
+          html += '<li>rural, community, primary care, remote</li>';
+          html += '</ul>';
+          html += '<p style="font-size:0.82rem"><strong>Reporting Equity Score:</strong> ' +
+            (reportingEquityScore * 100).toFixed(0) + '% of studies (' +
+            studiesWithDescriptors + '/' + studies.length + ') have any notes or covariate data.</p>';
+          html += '</div>';
+          container.innerHTML = html;
+        }
+        return;
+      }
+
+      drawDhulmChart(equityDomains);
+      _renderDhulmReport(equityDomains, studies.length, reportingEquityScore, studiesWithDescriptors);
+    });
   }
 
-  function _estimateRepresentation(trials, group) {
-    // Heuristic estimates based on typical CV trial demographics
-    // In a real system, these would be parsed from ClinicalTrials.gov demographics
-    const estimates = {
-      women: 32,     // CV trials typically under-represent women (~32%)
-      elderly: 15,   // Despite high burden, elderly are under-represented
-      black: 8,      // Significantly under-represented in CV trials
-      hispanic: 6,   // Under-represented
-      asian: 10,     // Variable representation
-      lowincome: 12, // Rarely captured in trial demographics
-      rural: 8,      // Most trials at academic medical centers
+  function _estimateRepresentation(studies, group) {
+    // Parse study-level notes and covariate fields for demographic keywords
+    // Returns percentage of studies mentioning the group (0-100), or -1 if no data at all
+    if (!studies || studies.length === 0) return -1;
+
+    const keywordMap = {
+      women: [/\bfemale\b/i, /\bwomen\b/i, /\bgirl\b/i],
+      elderly: [/\belderly\b/i, /\baged\b/i, /\bgeriatric\b/i, />\s*65/i, /over\s*65/i, />\s*75/i, /over\s*75/i],
+      pediatric: [/\bpediatric\b/i, /\bchild\b/i, /\bchildren\b/i, /\binfant\b/i, /\bneonatal\b/i, /\badolescent\b/i],
+      rural: [/\brural\b/i, /\bcommunity\b/i, /\bprimary\s*care\b/i, /\bremote\b/i],
+      emergency: [/\bemergency\b/i, /\bED\b/, /\burgent\b/i, /\bICU\b/i],
+      outpatient: [/\boutpatient\b/i, /\bambulatory\b/i, /\bclinic\b/i],
+      inpatient: [/\binpatient\b/i, /\bhospital\b/i, /\bward\b/i],
     };
-    return estimates[group] ?? 10;
+
+    const patterns = keywordMap[group];
+    if (!patterns) return -1;
+
+    // Check if ANY study has notes or covariate data at all
+    const studiesWithText = studies.filter(s => {
+      const notes = (s.notes ?? '').trim();
+      const cov = (s.covariate ?? '').trim();
+      return notes.length > 0 || cov.length > 0;
+    });
+
+    if (studiesWithText.length === 0) return -1;
+
+    // Count studies matching this group's keywords
+    let matchCount = 0;
+    for (const s of studies) {
+      const text = ((s.notes ?? '') + ' ' + (s.covariate ?? '')).toLowerCase();
+      if (text.trim().length === 0) continue;
+      const matched = patterns.some(rx => rx.test(text));
+      if (matched) matchCount++;
+    }
+
+    return studies.length > 0 ? Math.round((matchCount / studies.length) * 100) : 0;
   }
 
   function drawDhulmChart(domains) {
@@ -19347,7 +20290,11 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const theme = getThemeColors();
     ctx.clearRect(0, 0, w, h);
 
-    const padL = 120, padR = 40, padT = 50, padB = 40;
+    // Filter to only domains that have data (pctStudies >= 0)
+    const activeDomains = domains.filter(d => d.pctStudies >= 0);
+    if (activeDomains.length === 0) return;
+
+    const padL = 130, padR = 60, padT = 50, padB = 40;
     const plotW = w - padL - padR;
     const barH = 22;
     const gapH = 14;
@@ -19356,7 +20303,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     ctx.fillStyle = theme.text;
     ctx.font = 'bold 14px system-ui';
     ctx.textAlign = 'center';
-    ctx.fillText('Representation Justice Index', w / 2, 24);
+    ctx.fillText('Population Representation in Included Studies', w / 2, 24);
 
     // Legend
     ctx.font = '10px system-ui';
@@ -19364,17 +20311,12 @@ body.dark-mode .input-error { background: #451a1a !important; }
     ctx.fillRect(padL, 36, 12, 10);
     ctx.fillStyle = theme.textMuted;
     ctx.textAlign = 'left';
-    ctx.fillText('Trial representation', padL + 16, 45);
-    ctx.fillStyle = theme.text;
-    ctx.fillRect(padL + 140, 36, 2, 10);
-    ctx.fillStyle = theme.textMuted;
-    ctx.fillText('Disease burden', padL + 146, 45);
+    ctx.fillText('% of studies mentioning this population', padL + 16, 45);
 
-    domains.forEach((d, i) => {
+    activeDomains.forEach((d, i) => {
       const y = padT + i * (barH + gapH);
-      const maxPct = Math.max(d.trialRepresentation, d.populationBurden, 50);
-      const trialW = (d.trialRepresentation / maxPct) * plotW;
-      const burdenX = padL + (d.populationBurden / maxPct) * plotW;
+      const maxPct = 100;
+      const barW = (d.pctStudies / maxPct) * plotW;
 
       // Label
       ctx.fillStyle = theme.text;
@@ -19382,67 +20324,79 @@ body.dark-mode .input-error { background: #451a1a !important; }
       ctx.textAlign = 'right';
       ctx.fillText(d.name, padL - 8, y + barH / 2 + 4);
 
-      // Trial representation bar
-      ctx.fillStyle = d.color + 'aa';
-      ctx.fillRect(padL, y, trialW, barH);
+      // Background track
+      ctx.fillStyle = theme.text + '11';
+      ctx.fillRect(padL, y, plotW, barH);
 
-      // Disease burden marker
-      ctx.beginPath();
-      ctx.moveTo(burdenX, y - 2);
-      ctx.lineTo(burdenX, y + barH + 2);
-      ctx.strokeStyle = theme.text;
-      ctx.lineWidth = 2;
-      ctx.stroke();
+      // Data bar
+      ctx.fillStyle = d.color + 'bb';
+      ctx.fillRect(padL, y, barW, barH);
 
-      // Percentage labels
-      ctx.fillStyle = trialW > 30 ? '#fff' : theme.text;
+      // Percentage label
+      ctx.fillStyle = barW > 40 ? '#fff' : theme.text;
       ctx.font = '10px system-ui';
-      ctx.textAlign = trialW > 30 ? 'center' : 'left';
-      ctx.fillText(d.trialRepresentation + '%', trialW > 30 ? padL + trialW / 2 : padL + trialW + 4, y + barH / 2 + 4);
-
-      // Gap indicator
-      const gap = d.populationBurden - d.trialRepresentation;
-      if (gap > 5) {
-        ctx.fillStyle = '#ef4444';
-        ctx.font = '9px system-ui';
-        ctx.textAlign = 'left';
-        ctx.fillText('-' + gap + '% gap', burdenX + 6, y + barH / 2 + 4);
-      }
+      ctx.textAlign = barW > 40 ? 'center' : 'left';
+      ctx.fillText(d.pctStudies + '%', barW > 40 ? padL + barW / 2 : padL + barW + 4, y + barH / 2 + 4);
     });
+
+    // Show domains with no data
+    const noDataDomains = domains.filter(d => d.pctStudies === -1);
+    if (noDataDomains.length > 0) {
+      const startY = padT + activeDomains.length * (barH + gapH) + 10;
+      ctx.fillStyle = theme.textMuted;
+      ctx.font = '10px system-ui';
+      ctx.textAlign = 'left';
+      ctx.fillText('No data: ' + noDataDomains.map(d => d.name).join(', '), padL, startY);
+    }
   }
 
-  function _renderDhulmReport(domains, trialCount) {
+  function _renderDhulmReport(domains, studyCount, reportingEquityScore, studiesWithDescriptors) {
     const container = document.getElementById('dhulmReport');
     if (!container) return;
 
-    const gaps = domains.map(d => ({
-      name: d.name,
-      gap: d.populationBurden - d.trialRepresentation,
-      ratio: d.trialRepresentation / d.populationBurden,
-    })).filter(d => d.gap > 5).sort((a, b) => b.gap - a.gap);
-
-    const justiceIndex = domains.reduce((s, d) => {
-      const ratio = Math.min(d.trialRepresentation / d.populationBurden, 1);
-      return s + ratio;
-    }, 0) / domains.length;
+    const activeDomains = domains.filter(d => d.pctStudies >= 0);
+    const noDataDomains = domains.filter(d => d.pctStudies === -1);
+    const represented = activeDomains.filter(d => d.pctStudies > 0);
+    const unrepresented = activeDomains.filter(d => d.pctStudies === 0);
 
     let html = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px">';
-    html += '<h4 style="margin-bottom:8px">Representation Justice Index: <span style="color:' +
-      (justiceIndex >= 0.7 ? 'var(--success)' : justiceIndex >= 0.4 ? 'var(--warning)' : 'var(--danger)') + '">' +
-      (justiceIndex * 100).toFixed(0) + '/100</span></h4>';
 
-    if (gaps.length > 0) {
-      html += '<p style="font-size:0.85rem;margin-bottom:8px">The following groups are significantly under-represented relative to their disease burden:</p>';
-      html += '<ul style="font-size:0.82rem;padding-left:20px">';
-      gaps.forEach(g => {
-        html += '<li><strong>' + escapeHtml(g.name) + '</strong>: ' + g.gap + ' percentage point gap (representation/burden ratio: ' + (g.ratio * 100).toFixed(0) + '%)</li>';
+    // Reporting Equity Score
+    const resColor = reportingEquityScore >= 0.7 ? 'var(--success)' : reportingEquityScore >= 0.3 ? 'var(--warning)' : 'var(--danger)';
+    html += '<h4 style="margin-bottom:8px">Reporting Equity Score: <span style="color:' + resColor + '">' +
+      (reportingEquityScore * 100).toFixed(0) + '%</span></h4>';
+    html += '<p style="font-size:0.82rem;margin-bottom:8px">' + studiesWithDescriptors + ' of ' + studyCount +
+      ' studies have population descriptors in notes or covariate columns.</p>';
+
+    // Population groups found
+    if (represented.length > 0) {
+      html += '<p style="font-size:0.85rem;margin-bottom:6px"><strong>Population groups mentioned:</strong></p>';
+      html += '<ul style="font-size:0.82rem;padding-left:20px;margin-bottom:8px">';
+      represented.sort((a, b) => b.pctStudies - a.pctStudies).forEach(d => {
+        html += '<li><strong>' + escapeHtml(d.name) + '</strong>: mentioned in ' + d.pctStudies + '% of studies</li>';
       });
       html += '</ul>';
-    } else {
-      html += '<p style="font-size:0.85rem;color:var(--success)">Trial representation generally matches disease burden.</p>';
     }
 
-    html += '<p style="font-size:0.75rem;color:var(--text-muted);margin-top:8px">Note: Representation estimates are based on published CV trial demographic patterns. Actual demographics should be verified from individual trial publications.</p>';
+    // Groups not mentioned
+    if (unrepresented.length > 0) {
+      html += '<p style="font-size:0.85rem;margin-bottom:6px;color:var(--warning)"><strong>Groups not mentioned in any study:</strong></p>';
+      html += '<ul style="font-size:0.82rem;padding-left:20px;margin-bottom:8px">';
+      unrepresented.forEach(d => {
+        html += '<li>' + escapeHtml(d.name) + '</li>';
+      });
+      html += '</ul>';
+    }
+
+    // Studies without descriptors
+    if (studiesWithDescriptors < studyCount) {
+      html += '<p style="font-size:0.82rem;color:var(--text-muted);margin-top:6px">' +
+        (studyCount - studiesWithDescriptors) + ' studies have no population descriptors. ' +
+        'Consider adding demographic or setting information to the Covariate or Notes columns.</p>';
+    }
+
+    html += '<p style="font-size:0.75rem;color:var(--text-muted);margin-top:8px">Note: Population representation is estimated by keyword matching in study notes and covariate fields. ' +
+      'Percentages reflect the fraction of studies mentioning each group, not the actual proportion of participants.</p>';
     html += '</div>';
     container.innerHTML = html;
   }
@@ -19469,6 +20423,30 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const output = document.getElementById('rahmaOutput');
     const readability = document.getElementById('rahmaReadability');
 
+    // Check DTA mode — if DTA insights data is available, use DTA templates
+    const dtaData = _getDTAInsightsData();
+    if (dtaData && dtaData.sens != null && dtaData.spec != null) {
+      let summary = '';
+      if (lang === 'en') {
+        summary = _generateDTAEnglishSummary(dtaData);
+      } else if (lang === 'ar') {
+        summary = _generateDTAArabicSummary(dtaData);
+      } else if (lang === 'es') {
+        summary = _generateDTASpanishSummary(dtaData);
+      } else if (lang === 'fr') {
+        summary = _generateDTAFrenchSummary(dtaData);
+      }
+      output.innerHTML = '<div class="rahma-box">' + summary + '</div>';
+      if (lang === 'en') {
+        const grade = _fleschKincaidGrade(summary.replace(/<[^>]+>/g, ''));
+        readability.textContent = 'Readability: Flesch-Kincaid Grade Level ' + grade.toFixed(1) + ' (' + (grade <= 8 ? 'target met: 8th grade or below' : 'above 8th grade target - consider simplifying') + ')';
+      } else {
+        readability.textContent = '';
+      }
+      return;
+    }
+
+    // Fallback: pairwise summary (non-DTA mode)
     const k = analysis.studies?.length ?? 0;
     const effect = analysis.pooledEffect ?? 0;
     const effectType = analysis.effectType ?? '?';
@@ -19585,6 +20563,173 @@ body.dark-mode .input-error { background: #451a1a !important; }
       html += '<p>La recherche n\'a pas trouvé de différence claire entre les groupes de traitement et de contrôle.</p>';
     }
     html += '<p style="font-size:0.82rem;color:var(--text-muted)"><em>Ce résumé est à titre informatif uniquement et ne remplace pas un avis médical.</em></p>';
+    return html;
+  }
+
+  // --- DTA-specific plain-language summaries ---
+
+  function _generateDTAEnglishSummary(d) {
+    const k = d.k ?? 0;
+    const sens = d.sens ?? 0;
+    const spec = d.spec ?? 0;
+    const plr = d.plr ?? 0;
+    const nlr = d.nlr ?? 1;
+    const I2s = d.I2_sens ?? 0;
+    const I2sp = d.I2_spec ?? 0;
+
+    // Compute PPV and NPV at default 20% prevalence
+    const prev = 0.20;
+    const ppv = (sens * prev) / (sens * prev + (1 - spec) * (1 - prev));
+    const npv = (spec * (1 - prev)) / (spec * (1 - prev) + (1 - sens) * prev);
+
+    let html = '<h4>What This Research Found</h4>';
+    html += '<p>We looked at <span class="rahma-stat">' + k + ' studies</span> that tested how well a diagnostic test works for detecting a condition.</p>';
+
+    html += '<h4>How Accurate Is the Test?</h4>';
+    html += '<p>The test correctly finds <span class="rahma-stat">' + (sens * 100).toFixed(0) + '%</span> of people who have the condition. This is called sensitivity.</p>';
+    html += '<p>The test correctly clears <span class="rahma-stat">' + (spec * 100).toFixed(0) + '%</span> of people who do not have the condition. This is called specificity.</p>';
+
+    html += '<h4>What Do the Results Mean for You?</h4>';
+    html += '<p>If the condition affects about 20% of people being tested:</p>';
+    html += '<ul>';
+    html += '<li>If you test <strong>positive</strong>, there is a <span class="rahma-stat">' + (ppv * 100).toFixed(0) + '%</span> chance you actually have the condition.</li>';
+    html += '<li>If you test <strong>negative</strong>, there is a <span class="rahma-stat">' + (npv * 100).toFixed(0) + '%</span> chance you are truly clear.</li>';
+    html += '</ul>';
+
+    // Interpret likelihood ratios
+    if (plr >= 10) {
+      html += '<p>This test is <strong>very good at confirming</strong> the condition when the result is positive.</p>';
+    } else if (plr >= 5) {
+      html += '<p>This test is <strong>moderately good at confirming</strong> the condition when the result is positive.</p>';
+    }
+    if (nlr <= 0.1) {
+      html += '<p>This test is <strong>very good at ruling out</strong> the condition when the result is negative.</p>';
+    } else if (nlr <= 0.2) {
+      html += '<p>This test is <strong>moderately good at ruling out</strong> the condition when the result is negative.</p>';
+    }
+
+    html += '<h4>How Reliable Are These Findings?</h4>';
+    if (I2s < 50 && I2sp < 50) {
+      html += '<p>The results were <strong>consistent</strong> across studies. The studies agreed well, which increases our confidence in these numbers.</p>';
+    } else if (I2s > 75 || I2sp > 75) {
+      html += '<p>The results were <strong>quite variable</strong> across studies. There was significant disagreement between studies, so results might differ depending on the setting where the test is used.</p>';
+    } else {
+      html += '<p>The results were <strong>somewhat variable</strong> across studies. Some disagreement existed, so the true accuracy might be slightly different from these numbers.</p>';
+    }
+
+    html += '<p style="font-size:0.82rem;color:var(--text-muted)"><em>This summary is for informational purposes only and does not replace medical advice. The predictive values above assume a 20% disease prevalence and will differ depending on your clinical setting. Talk to your doctor about what your test result means for you.</em></p>';
+    return html;
+  }
+
+  function _generateDTAArabicSummary(d) {
+    const k = d.k ?? 0;
+    const sens = d.sens ?? 0;
+    const spec = d.spec ?? 0;
+    const I2s = d.I2_sens ?? 0;
+    const I2sp = d.I2_spec ?? 0;
+
+    const prev = 0.20;
+    const ppv = (sens * prev) / (sens * prev + (1 - spec) * (1 - prev));
+    const npv = (spec * (1 - prev)) / (spec * (1 - prev) + (1 - sens) * prev);
+
+    let html = '<h4 dir="rtl" style="text-align:right">ما وجده هذا البحث</h4>';
+    html += '<p dir="rtl" style="text-align:right">نظرنا في <span class="rahma-stat">' + k + '</span> دراسة اختبرت مدى دقة فحص تشخيصي في اكتشاف حالة مرضية.</p>';
+
+    html += '<h4 dir="rtl" style="text-align:right">ما مدى دقة الفحص؟</h4>';
+    html += '<p dir="rtl" style="text-align:right">يكتشف الفحص بشكل صحيح <span class="rahma-stat">' + (sens * 100).toFixed(0) + '%</span> من الاشخاص المصابين بالحالة. يسمى هذا الحساسية.</p>';
+    html += '<p dir="rtl" style="text-align:right">يستبعد الفحص بشكل صحيح <span class="rahma-stat">' + (spec * 100).toFixed(0) + '%</span> من الاشخاص غير المصابين. يسمى هذا النوعية.</p>';
+
+    html += '<h4 dir="rtl" style="text-align:right">ماذا تعني النتائج بالنسبة لك؟</h4>';
+    html += '<p dir="rtl" style="text-align:right">اذا كانت الحالة تصيب حوالي 20% من الاشخاص الذين يتم فحصهم:</p>';
+    html += '<ul dir="rtl" style="text-align:right">';
+    html += '<li>اذا كانت نتيجة فحصك <strong>ايجابية</strong>، فهناك احتمال <span class="rahma-stat">' + (ppv * 100).toFixed(0) + '%</span> انك مصاب فعلا بالحالة.</li>';
+    html += '<li>اذا كانت نتيجة فحصك <strong>سلبية</strong>، فهناك احتمال <span class="rahma-stat">' + (npv * 100).toFixed(0) + '%</span> انك سليم فعلا.</li>';
+    html += '</ul>';
+
+    html += '<h4 dir="rtl" style="text-align:right">ما مدى موثوقية هذه النتائج؟</h4>';
+    if (I2s < 50 && I2sp < 50) {
+      html += '<p dir="rtl" style="text-align:right">كانت النتائج <strong>متسقة</strong> بين الدراسات، مما يزيد ثقتنا بهذه الارقام.</p>';
+    } else if (I2s > 75 || I2sp > 75) {
+      html += '<p dir="rtl" style="text-align:right">كانت النتائج <strong>متباينة بشكل كبير</strong> بين الدراسات، لذا قد تختلف النتائج حسب مكان استخدام الفحص.</p>';
+    } else {
+      html += '<p dir="rtl" style="text-align:right">كانت النتائج <strong>متباينة بعض الشيء</strong> بين الدراسات.</p>';
+    }
+
+    html += '<p dir="rtl" style="text-align:right;font-size:0.82rem;color:var(--text-muted)"><em>هذا الملخص لاغراض معلوماتية فقط ولا يحل محل الاستشارة الطبية. القيم التنبؤية اعلاه تفترض انتشارا بنسبة 20% وستختلف حسب بيئتك السريرية. تحدث مع طبيبك حول ما تعنيه نتيجة فحصك.</em></p>';
+    return html;
+  }
+
+  function _generateDTASpanishSummary(d) {
+    const k = d.k ?? 0;
+    const sens = d.sens ?? 0;
+    const spec = d.spec ?? 0;
+    const I2s = d.I2_sens ?? 0;
+    const I2sp = d.I2_spec ?? 0;
+
+    const prev = 0.20;
+    const ppv = (sens * prev) / (sens * prev + (1 - spec) * (1 - prev));
+    const npv = (spec * (1 - prev)) / (spec * (1 - prev) + (1 - sens) * prev);
+
+    let html = '<h4>Lo que encontro esta investigacion</h4>';
+    html += '<p>Analizamos <span class="rahma-stat">' + k + ' estudios</span> que evaluaron la precision de una prueba diagnostica para detectar una condicion.</p>';
+
+    html += '<h4>Que tan precisa es la prueba?</h4>';
+    html += '<p>La prueba detecta correctamente al <span class="rahma-stat">' + (sens * 100).toFixed(0) + '%</span> de las personas que tienen la condicion (sensibilidad).</p>';
+    html += '<p>La prueba descarta correctamente al <span class="rahma-stat">' + (spec * 100).toFixed(0) + '%</span> de las personas que no tienen la condicion (especificidad).</p>';
+
+    html += '<h4>Que significan los resultados para usted?</h4>';
+    html += '<p>Si la condicion afecta a aproximadamente el 20% de las personas evaluadas:</p>';
+    html += '<ul>';
+    html += '<li>Si su resultado es <strong>positivo</strong>, hay un <span class="rahma-stat">' + (ppv * 100).toFixed(0) + '%</span> de probabilidad de tener la condicion.</li>';
+    html += '<li>Si su resultado es <strong>negativo</strong>, hay un <span class="rahma-stat">' + (npv * 100).toFixed(0) + '%</span> de probabilidad de estar libre de la condicion.</li>';
+    html += '</ul>';
+
+    if (I2s < 50 && I2sp < 50) {
+      html += '<p>Los resultados fueron <strong>consistentes</strong> entre los estudios.</p>';
+    } else if (I2s > 75 || I2sp > 75) {
+      html += '<p>Los resultados fueron <strong>bastante variables</strong> entre los estudios.</p>';
+    } else {
+      html += '<p>Los resultados fueron <strong>algo variables</strong> entre los estudios.</p>';
+    }
+
+    html += '<p style="font-size:0.82rem;color:var(--text-muted)"><em>Este resumen es solo informativo y no reemplaza el consejo medico. Los valores predictivos asumen una prevalencia del 20%. Consulte con su medico.</em></p>';
+    return html;
+  }
+
+  function _generateDTAFrenchSummary(d) {
+    const k = d.k ?? 0;
+    const sens = d.sens ?? 0;
+    const spec = d.spec ?? 0;
+    const I2s = d.I2_sens ?? 0;
+    const I2sp = d.I2_spec ?? 0;
+
+    const prev = 0.20;
+    const ppv = (sens * prev) / (sens * prev + (1 - spec) * (1 - prev));
+    const npv = (spec * (1 - prev)) / (spec * (1 - prev) + (1 - sens) * prev);
+
+    let html = '<h4>Ce que cette recherche a trouve</h4>';
+    html += '<p>Nous avons examine <span class="rahma-stat">' + k + ' etudes</span> qui ont evalue la precision d\'un test diagnostique.</p>';
+
+    html += '<h4>Quelle est la precision du test?</h4>';
+    html += '<p>Le test detecte correctement <span class="rahma-stat">' + (sens * 100).toFixed(0) + '%</span> des personnes atteintes (sensibilite).</p>';
+    html += '<p>Le test exclut correctement <span class="rahma-stat">' + (spec * 100).toFixed(0) + '%</span> des personnes non atteintes (specificite).</p>';
+
+    html += '<h4>Que signifient les resultats pour vous?</h4>';
+    html += '<p>Si la condition touche environ 20% des personnes testees:</p>';
+    html += '<ul>';
+    html += '<li>Si votre resultat est <strong>positif</strong>, il y a <span class="rahma-stat">' + (ppv * 100).toFixed(0) + '%</span> de chances que vous ayez la condition.</li>';
+    html += '<li>Si votre resultat est <strong>negatif</strong>, il y a <span class="rahma-stat">' + (npv * 100).toFixed(0) + '%</span> de chances que vous soyez indemne.</li>';
+    html += '</ul>';
+
+    if (I2s < 50 && I2sp < 50) {
+      html += '<p>Les resultats etaient <strong>coherents</strong> entre les etudes.</p>';
+    } else if (I2s > 75 || I2sp > 75) {
+      html += '<p>Les resultats etaient <strong>assez variables</strong> entre les etudes.</p>';
+    } else {
+      html += '<p>Les resultats etaient <strong>quelque peu variables</strong> entre les etudes.</p>';
+    }
+
+    html += '<p style="font-size:0.82rem;color:var(--text-muted)"><em>Ce resume est a titre informatif uniquement et ne remplace pas un avis medical. Les valeurs predictives supposent une prevalence de 20%. Consultez votre medecin.</em></p>';
     return html;
   }
 
