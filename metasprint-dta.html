@@ -9014,6 +9014,266 @@ body.dark-mode .input-error { background: #451a1a !important; }
     if (icon) icon.textContent = isHidden ? '\u25BC' : '\u25B6';
   }
 
+  // --- Crosshairs Plot (ROC space with study-level CIs) ---
+  function renderCrosshairsPlot(result, confLevel) {
+    const container = document.getElementById('advCrosshairsContainer');
+    if (!container || !result || !result.studyData || result.studyData.length < 2) return;
+    const alpha = 1 - (confLevel ?? 0.95);
+    const studies = result.studyData;
+    const W = 500, H = 420, pad = {top: 30, right: 30, bottom: 50, left: 55};
+    const pw = W - pad.left - pad.right, ph = H - pad.top - pad.bottom;
+    const sx = v => pad.left + v * pw;       // FPR 0..1 -> x
+    const sy = v => pad.top + (1 - v) * ph;  // Sens 0..1 -> y
+
+    // max n for bubble sizing
+    const maxN = Math.max(...studies.map(s => s.n ?? 1));
+    const rScale = n => 3 + 9 * Math.sqrt((n ?? 1) / maxN);
+
+    let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="max-width:520px;width:100%;font-family:sans-serif" xmlns="http://www.w3.org/2000/svg">';
+
+    // Grid lines
+    for (let g = 0; g <= 1; g += 0.2) {
+      const gx = sx(g), gy = sy(g);
+      svg += '<line x1="' + gx + '" y1="' + pad.top + '" x2="' + gx + '" y2="' + (H - pad.bottom) + '" stroke="#e5e7eb" stroke-width="0.5"/>';
+      svg += '<line x1="' + pad.left + '" y1="' + gy + '" x2="' + (W - pad.right) + '" y2="' + gy + '" stroke="#e5e7eb" stroke-width="0.5"/>';
+    }
+
+    // Axes
+    svg += '<line x1="' + pad.left + '" y1="' + (H - pad.bottom) + '" x2="' + (W - pad.right) + '" y2="' + (H - pad.bottom) + '" stroke="#374151" stroke-width="1.5"/>';
+    svg += '<line x1="' + pad.left + '" y1="' + pad.top + '" x2="' + pad.left + '" y2="' + (H - pad.bottom) + '" stroke="#374151" stroke-width="1.5"/>';
+
+    // Axis labels
+    svg += '<text x="' + (pad.left + pw / 2) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="12" fill="#374151">1 \u2212 Specificity (FPR)</text>';
+    svg += '<text x="14" y="' + (pad.top + ph / 2) + '" text-anchor="middle" font-size="12" fill="#374151" transform="rotate(-90,14,' + (pad.top + ph / 2) + ')">Sensitivity</text>';
+
+    // Tick labels
+    for (let t = 0; t <= 1; t += 0.2) {
+      const tl = t.toFixed(1);
+      svg += '<text x="' + sx(t) + '" y="' + (H - pad.bottom + 16) + '" text-anchor="middle" font-size="10" fill="#6b7280">' + tl + '</text>';
+      svg += '<text x="' + (pad.left - 6) + '" y="' + (sy(t) + 3.5) + '" text-anchor="end" font-size="10" fill="#6b7280">' + tl + '</text>';
+    }
+
+    // Chance line (diagonal)
+    svg += '<line x1="' + sx(0) + '" y1="' + sy(0) + '" x2="' + sx(1) + '" y2="' + sy(1) + '" stroke="#9ca3af" stroke-width="1" stroke-dasharray="4,3"/>';
+
+    // Study crosshairs
+    studies.forEach(s => {
+      const fpr = 1 - s.spec;
+      const cx = sx(fpr), cy = sy(s.sens);
+      const r = rScale(s.n);
+
+      // Compute study-level CIs
+      const sensCIarr = wilsonCI(s.tp, s.tp + s.fn, alpha);
+      const specCIarr = wilsonCI(s.tn, s.tn + s.fp, alpha);
+      // Convert spec CI to FPR CI (reversed)
+      const fprLo = 1 - specCIarr[1]; // lower FPR = 1 - upper Spec
+      const fprHi = 1 - specCIarr[0]; // upper FPR = 1 - lower Spec
+
+      // Horizontal bar (FPR CI)
+      svg += '<line x1="' + sx(Math.max(0, fprLo)) + '" y1="' + cy + '" x2="' + sx(Math.min(1, fprHi)) + '" y2="' + cy + '" stroke="#6366f1" stroke-width="1.2" opacity="0.6"/>';
+      // Vertical bar (Sens CI)
+      svg += '<line x1="' + cx + '" y1="' + sy(Math.min(1, sensCIarr[1])) + '" x2="' + cx + '" y2="' + sy(Math.max(0, sensCIarr[0])) + '" stroke="#6366f1" stroke-width="1.2" opacity="0.6"/>';
+      // Point
+      svg += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r.toFixed(1) + '" fill="#6366f1" fill-opacity="0.5" stroke="#4f46e5" stroke-width="1">';
+      svg += '<title>' + escapeHtml(s.authorYear ?? '') + ' Sens=' + (s.sens * 100).toFixed(1) + '% FPR=' + (fpr * 100).toFixed(1) + '% n=' + s.n + '</title></circle>';
+    });
+
+    // Summary diamond at pooled (1-pooledSpec, pooledSens)
+    const pFPR = 1 - result.pooledSpec;
+    const dcx = sx(pFPR), dcy = sy(result.pooledSens);
+    const dw = 8, dh = 8;
+    svg += '<polygon points="' + dcx + ',' + (dcy - dh) + ' ' + (dcx + dw) + ',' + dcy + ' ' + dcx + ',' + (dcy + dh) + ' ' + (dcx - dw) + ',' + dcy + '" fill="#dc2626" fill-opacity="0.8" stroke="#991b1b" stroke-width="1.5"/>';
+    svg += '<text x="' + (dcx + dw + 4) + '" y="' + (dcy + 4) + '" font-size="9" fill="#991b1b">Pooled</text>';
+
+    // Title
+    svg += '<text x="' + (W / 2) + '" y="18" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">Crosshairs Plot (ROC Space)</text>';
+    svg += '</svg>';
+
+    container.innerHTML = '<h4 style="margin-bottom:8px">Crosshairs Plot</h4>' + svg +
+      '<p style="font-size:0.78rem;color:var(--text-muted);margin-top:4px">Each study shown with ' + ((1 - alpha) * 100).toFixed(0) + '% CIs for sensitivity (vertical) and FPR (horizontal). Bubble size proportional to \u221An. Red diamond = pooled estimate.</p>';
+  }
+
+  // --- L\'Abbe Plot (Sensitivity vs Specificity with iso-DOR curves) ---
+  function renderLabbePlot(result, confLevel) {
+    const container = document.getElementById('advLabbeContainer');
+    if (!container || !result || !result.studyData || result.studyData.length < 2) return;
+    const studies = result.studyData;
+    const W = 460, H = 420, pad = {top: 30, right: 30, bottom: 50, left: 55};
+    const pw = W - pad.left - pad.right, ph = H - pad.top - pad.bottom;
+    const sx = v => pad.left + v * pw;       // Spec 0..1 -> x
+    const sy = v => pad.top + (1 - v) * ph;  // Sens 0..1 -> y
+
+    const maxN = Math.max(...studies.map(s => s.n ?? 1));
+    const rScale = n => 3 + 9 * Math.sqrt((n ?? 1) / maxN);
+
+    let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="max-width:480px;width:100%;font-family:sans-serif" xmlns="http://www.w3.org/2000/svg">';
+
+    // Grid
+    for (let g = 0; g <= 1; g += 0.2) {
+      svg += '<line x1="' + sx(g) + '" y1="' + pad.top + '" x2="' + sx(g) + '" y2="' + (H - pad.bottom) + '" stroke="#e5e7eb" stroke-width="0.5"/>';
+      svg += '<line x1="' + pad.left + '" y1="' + sy(g) + '" x2="' + (W - pad.right) + '" y2="' + sy(g) + '" stroke="#e5e7eb" stroke-width="0.5"/>';
+    }
+
+    // Axes
+    svg += '<line x1="' + pad.left + '" y1="' + (H - pad.bottom) + '" x2="' + (W - pad.right) + '" y2="' + (H - pad.bottom) + '" stroke="#374151" stroke-width="1.5"/>';
+    svg += '<line x1="' + pad.left + '" y1="' + pad.top + '" x2="' + pad.left + '" y2="' + (H - pad.bottom) + '" stroke="#374151" stroke-width="1.5"/>';
+
+    // Axis labels
+    svg += '<text x="' + (pad.left + pw / 2) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="12" fill="#374151">Specificity</text>';
+    svg += '<text x="14" y="' + (pad.top + ph / 2) + '" text-anchor="middle" font-size="12" fill="#374151" transform="rotate(-90,14,' + (pad.top + ph / 2) + ')">Sensitivity</text>';
+
+    // Tick labels
+    for (let t = 0; t <= 1; t += 0.2) {
+      const tl = t.toFixed(1);
+      svg += '<text x="' + sx(t) + '" y="' + (H - pad.bottom + 16) + '" text-anchor="middle" font-size="10" fill="#6b7280">' + tl + '</text>';
+      svg += '<text x="' + (pad.left - 6) + '" y="' + (sy(t) + 3.5) + '" text-anchor="end" font-size="10" fill="#6b7280">' + tl + '</text>';
+    }
+
+    // Iso-DOR curves: sens = (dor * spec) / (1 - spec + dor * spec)
+    const isoDORs = [5, 20, 100];
+    const curveColors = ['#d4a574', '#b07d4f', '#8b5e3c'];
+    isoDORs.forEach((dor, ci) => {
+      let pathD = '';
+      for (let sp = 0.01; sp <= 0.99; sp += 0.01) {
+        const se = (dor * sp) / (1 - sp + dor * sp);
+        if (se >= 0 && se <= 1) {
+          const px = sx(sp), py = sy(se);
+          pathD += (pathD === '' ? 'M' : 'L') + px.toFixed(1) + ',' + py.toFixed(1);
+        }
+      }
+      if (pathD) {
+        svg += '<path d="' + pathD + '" fill="none" stroke="' + curveColors[ci] + '" stroke-width="1.2" stroke-dasharray="5,3" opacity="0.7"/>';
+        // Label at spec=0.85
+        const labelSe = (dor * 0.85) / (1 - 0.85 + dor * 0.85);
+        if (labelSe >= 0.05 && labelSe <= 0.98) {
+          svg += '<text x="' + (sx(0.85) + 2) + '" y="' + (sy(labelSe) - 4) + '" font-size="9" fill="' + curveColors[ci] + '">DOR=' + dor + '</text>';
+        }
+      }
+    });
+
+    // Study bubbles
+    studies.forEach(s => {
+      const cx = sx(s.spec), cy = sy(s.sens);
+      const r = rScale(s.n);
+      svg += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r.toFixed(1) + '" fill="#10b981" fill-opacity="0.45" stroke="#059669" stroke-width="1">';
+      svg += '<title>' + escapeHtml(s.authorYear ?? '') + ' Sens=' + (s.sens * 100).toFixed(1) + '% Spec=' + (s.spec * 100).toFixed(1) + '% n=' + s.n + '</title></circle>';
+    });
+
+    // Summary diamond
+    const dcx = sx(result.pooledSpec), dcy = sy(result.pooledSens);
+    const dw = 8, dh = 8;
+    svg += '<polygon points="' + dcx + ',' + (dcy - dh) + ' ' + (dcx + dw) + ',' + dcy + ' ' + dcx + ',' + (dcy + dh) + ' ' + (dcx - dw) + ',' + dcy + '" fill="#dc2626" fill-opacity="0.8" stroke="#991b1b" stroke-width="1.5"/>';
+    svg += '<text x="' + (dcx + dw + 4) + '" y="' + (dcy + 4) + '" font-size="9" fill="#991b1b">Pooled</text>';
+
+    // Title
+    svg += '<text x="' + (W / 2) + '" y="18" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">L\'Abb\u00e9 Plot</text>';
+    svg += '</svg>';
+
+    container.innerHTML = '<h4 style="margin-bottom:8px">L\u2019Abb\u00e9 Plot</h4>' + svg +
+      '<p style="font-size:0.78rem;color:var(--text-muted);margin-top:4px">Studies plotted as (Specificity, Sensitivity). Dashed curves show iso-DOR contours (DOR = 5, 20, 100). Red diamond = pooled estimate.</p>';
+  }
+
+  // --- Galbraith (Radial) Plot ---
+  function renderGalbraithPlot(result) {
+    const container = document.getElementById('advGalbraithContainer');
+    if (!container || !result || !result.studyData || result.studyData.length < 2) return;
+    const studies = result.studyData;
+
+    // Compute logDOR and SE for each study (with 0.5 continuity correction if needed)
+    const pts = [];
+    studies.forEach(s => {
+      let tp = s.tp, fp = s.fp, fn = s.fn, tn = s.tn;
+      const hasZero = tp === 0 || fp === 0 || fn === 0 || tn === 0;
+      const cc = hasZero ? 0.5 : 0;
+      const tpc = tp + cc, fpc = fp + cc, fnc = fn + cc, tnc = tn + cc;
+      const lnDOR = Math.log((tpc * tnc) / (fpc * fnc));
+      const seLnDOR = Math.sqrt(1 / tpc + 1 / fpc + 1 / fnc + 1 / tnc);
+      if (isFinite(lnDOR) && isFinite(seLnDOR) && seLnDOR > 0) {
+        pts.push({
+          label: s.authorYear ?? '',
+          x: 1 / seLnDOR,         // precision
+          y: lnDOR / seLnDOR,     // standardized effect
+          lnDOR, seLnDOR, n: s.n
+        });
+      }
+    });
+    if (pts.length < 2) return;
+
+    // Fixed-effect pooled logDOR (inverse-variance weighted)
+    const sumW = pts.reduce((s, p) => s + 1 / (p.seLnDOR * p.seLnDOR), 0);
+    const pooledLnDOR = pts.reduce((s, p) => s + p.lnDOR / (p.seLnDOR * p.seLnDOR), 0) / sumW;
+
+    const xMax = Math.max(...pts.map(p => p.x)) * 1.15;
+    const yAll = pts.map(p => p.y);
+    const yBand1 = pooledLnDOR * xMax + 1.96;
+    const yBand2 = pooledLnDOR * xMax - 1.96;
+    const yAbsMax = Math.max(Math.abs(Math.min(...yAll, yBand2, -2)), Math.abs(Math.max(...yAll, yBand1, 2))) * 1.15;
+
+    const W = 500, H = 380, pad = {top: 30, right: 30, bottom: 50, left: 55};
+    const pw = W - pad.left - pad.right, ph = H - pad.top - pad.bottom;
+    const sx = v => pad.left + (v / xMax) * pw;
+    const sy = v => pad.top + (1 - (v + yAbsMax) / (2 * yAbsMax)) * ph;
+
+    let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="max-width:520px;width:100%;font-family:sans-serif" xmlns="http://www.w3.org/2000/svg">';
+
+    // Grid
+    svg += '<line x1="' + pad.left + '" y1="' + sy(0) + '" x2="' + (W - pad.right) + '" y2="' + sy(0) + '" stroke="#e5e7eb" stroke-width="0.5"/>';
+
+    // Axes
+    svg += '<line x1="' + pad.left + '" y1="' + (H - pad.bottom) + '" x2="' + (W - pad.right) + '" y2="' + (H - pad.bottom) + '" stroke="#374151" stroke-width="1.5"/>';
+    svg += '<line x1="' + pad.left + '" y1="' + pad.top + '" x2="' + pad.left + '" y2="' + (H - pad.bottom) + '" stroke="#374151" stroke-width="1.5"/>';
+
+    // Axis labels
+    svg += '<text x="' + (pad.left + pw / 2) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="12" fill="#374151">Precision (1/SE)</text>';
+    svg += '<text x="14" y="' + (pad.top + ph / 2) + '" text-anchor="middle" font-size="12" fill="#374151" transform="rotate(-90,14,' + (pad.top + ph / 2) + ')">Standardized ln(DOR)</text>';
+
+    // Tick labels on x-axis
+    const xStep = Math.max(1, Math.round(xMax / 5));
+    for (let t = 0; t <= xMax; t += xStep) {
+      svg += '<text x="' + sx(t) + '" y="' + (H - pad.bottom + 16) + '" text-anchor="middle" font-size="10" fill="#6b7280">' + t.toFixed(0) + '</text>';
+      svg += '<line x1="' + sx(t) + '" y1="' + (H - pad.bottom) + '" x2="' + sx(t) + '" y2="' + (H - pad.bottom + 4) + '" stroke="#6b7280" stroke-width="1"/>';
+    }
+    // Tick labels on y-axis
+    const yStep = Math.max(1, Math.round(yAbsMax / 3));
+    for (let t = -Math.floor(yAbsMax); t <= Math.floor(yAbsMax); t += yStep) {
+      svg += '<text x="' + (pad.left - 6) + '" y="' + (sy(t) + 3.5) + '" text-anchor="end" font-size="10" fill="#6b7280">' + t + '</text>';
+      svg += '<line x1="' + (pad.left - 3) + '" y1="' + sy(t) + '" x2="' + pad.left + '" y2="' + sy(t) + '" stroke="#6b7280" stroke-width="1"/>';
+    }
+
+    // Regression line through origin (slope = pooled logDOR)
+    svg += '<line x1="' + sx(0) + '" y1="' + sy(0) + '" x2="' + sx(xMax) + '" y2="' + sy(pooledLnDOR * xMax) + '" stroke="#2563eb" stroke-width="1.5"/>';
+
+    // +/-1.96 bands (dashed)
+    svg += '<line x1="' + sx(0) + '" y1="' + sy(1.96) + '" x2="' + sx(xMax) + '" y2="' + sy(pooledLnDOR * xMax + 1.96) + '" stroke="#f59e0b" stroke-width="1" stroke-dasharray="5,3"/>';
+    svg += '<line x1="' + sx(0) + '" y1="' + sy(-1.96) + '" x2="' + sx(xMax) + '" y2="' + sy(pooledLnDOR * xMax - 1.96) + '" stroke="#f59e0b" stroke-width="1" stroke-dasharray="5,3"/>';
+    svg += '<text x="' + (sx(xMax) + 2) + '" y="' + (sy(pooledLnDOR * xMax + 1.96) - 2) + '" font-size="8" fill="#d97706">+1.96</text>';
+    svg += '<text x="' + (sx(xMax) + 2) + '" y="' + (sy(pooledLnDOR * xMax - 1.96) + 8) + '" font-size="8" fill="#d97706">\u22121.96</text>';
+
+    // Study points
+    const outliers = [];
+    pts.forEach(p => {
+      const cx = sx(p.x), cy = sy(p.y);
+      const expected = pooledLnDOR * p.x;
+      const isOutlier = Math.abs(p.y - expected) > 1.96;
+      const fillColor = isOutlier ? '#ef4444' : '#6366f1';
+      const strokeColor = isOutlier ? '#dc2626' : '#4f46e5';
+      if (isOutlier) outliers.push(p.label);
+      svg += '<circle cx="' + cx + '" cy="' + cy + '" r="4" fill="' + fillColor + '" fill-opacity="0.6" stroke="' + strokeColor + '" stroke-width="1">';
+      svg += '<title>' + escapeHtml(p.label) + ' ln(DOR)=' + p.lnDOR.toFixed(2) + ' SE=' + p.seLnDOR.toFixed(2) + (isOutlier ? ' [OUTLIER]' : '') + '</title></circle>';
+    });
+
+    // Title
+    svg += '<text x="' + (W / 2) + '" y="18" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">Galbraith (Radial) Plot</text>';
+    svg += '</svg>';
+
+    let note = '<p style="font-size:0.78rem;color:var(--text-muted);margin-top:4px">Regression line slope = FE pooled ln(DOR) = ' + pooledLnDOR.toFixed(3) + '. Dashed lines = \u00b11.96 bands. Points outside bands suggest heterogeneity.</p>';
+    if (outliers.length > 0) {
+      note += '<p style="font-size:0.78rem;color:var(--danger);margin-top:2px">Outliers (' + outliers.length + '): ' + escapeHtml(outliers.join(', ')) + '</p>';
+    }
+
+    container.innerHTML = '<h4 style="margin-bottom:8px">Galbraith (Radial) Plot</h4>' + svg + note;
+  }
+
   // --- Render Advanced DTA Features ---
   function renderAdvancedDTA(result, confLevel) {
     if (!result || !result.studyData) return;
@@ -9137,9 +9397,14 @@ body.dark-mode .input-error { background: #451a1a !important; }
         'For reviews comparing two or more index tests, use R packages <code>mada</code> or <code>meta4diag</code>, or RevMan with the Cochrane DTA template. ' +
         'Data can be exported via the R code above.</div>';
     }
+
+    // Wire Phase 4 visualizations
+    renderCrosshairsPlot(result, confLevel);
+    renderLabbePlot(result, confLevel);
+    renderGalbraithPlot(result);
   }
 
-  // --- Fagan Nomogram Calculator ---
+  // --- Fagan Nomogram Calculator (SVG three-line nomogram) ---
   function computeFagan() {
     const pretestInput = document.getElementById('faganPretest');
     const resultDiv = document.getElementById('faganResult');
@@ -9163,10 +9428,101 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const posttestOddsNeg = pretestOdds * nlr;
     const posttestPos = posttestOddsPos / (1 + posttestOddsPos);
     const posttestNeg = posttestOddsNeg / (1 + posttestOddsNeg);
-    let html = '<table style="font-size:0.82rem;border-collapse:collapse">';
+
+    // SVG Fagan Nomogram: three vertical axes
+    const W = 380, H = 420, pad = {top: 35, bottom: 35};
+    const axH = H - pad.top - pad.bottom;
+    const xLeft = 70, xMid = W / 2, xRight = W - 70;
+
+    // Map probability (0.01..0.99) to y via log-odds
+    const probToY = p => {
+      const lo = Math.log(p / (1 - p));
+      // log-odds range: log(0.01/0.99)=-4.595 to log(0.99/0.01)=4.595
+      const loMin = Math.log(0.01 / 0.99), loMax = Math.log(0.99 / 0.01);
+      return pad.top + (1 - (lo - loMin) / (loMax - loMin)) * axH;
+    };
+    // Map LR (0.01..100) to y via log10
+    const lrToY = lr => {
+      const l10 = Math.log10(lr);
+      // log10 range: -2 to 2
+      const lMin = -2, lMax = 2;
+      return pad.top + (1 - (l10 - lMin) / (lMax - lMin)) * axH;
+    };
+
+    let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="max-width:400px;width:100%;font-family:sans-serif" xmlns="http://www.w3.org/2000/svg">';
+
+    // Three vertical axis lines
+    svg += '<line x1="' + xLeft + '" y1="' + pad.top + '" x2="' + xLeft + '" y2="' + (H - pad.bottom) + '" stroke="#374151" stroke-width="1.5"/>';
+    svg += '<line x1="' + xMid + '" y1="' + pad.top + '" x2="' + xMid + '" y2="' + (H - pad.bottom) + '" stroke="#374151" stroke-width="1.5"/>';
+    svg += '<line x1="' + xRight + '" y1="' + pad.top + '" x2="' + xRight + '" y2="' + (H - pad.bottom) + '" stroke="#374151" stroke-width="1.5"/>';
+
+    // Axis titles
+    svg += '<text x="' + xLeft + '" y="' + (pad.top - 10) + '" text-anchor="middle" font-size="10" font-weight="600" fill="#374151">Pre-test</text>';
+    svg += '<text x="' + xLeft + '" y="' + (H - pad.bottom + 16) + '" text-anchor="middle" font-size="9" fill="#6b7280">Probability</text>';
+    svg += '<text x="' + xMid + '" y="' + (pad.top - 10) + '" text-anchor="middle" font-size="10" font-weight="600" fill="#374151">Likelihood</text>';
+    svg += '<text x="' + xMid + '" y="' + (H - pad.bottom + 16) + '" text-anchor="middle" font-size="9" fill="#6b7280">Ratio</text>';
+    svg += '<text x="' + xRight + '" y="' + (pad.top - 10) + '" text-anchor="middle" font-size="10" font-weight="600" fill="#374151">Post-test</text>';
+    svg += '<text x="' + xRight + '" y="' + (H - pad.bottom + 16) + '" text-anchor="middle" font-size="9" fill="#6b7280">Probability</text>';
+
+    // Tick marks on left (pre-test probability) and right (post-test probability)
+    const probTicks = [0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99];
+    probTicks.forEach(p => {
+      const y = probToY(p);
+      const label = p < 0.1 ? (p * 100).toFixed(0) : (p * 100).toFixed(0);
+      // Left axis ticks
+      svg += '<line x1="' + (xLeft - 4) + '" y1="' + y + '" x2="' + xLeft + '" y2="' + y + '" stroke="#374151" stroke-width="1"/>';
+      svg += '<text x="' + (xLeft - 7) + '" y="' + (y + 3.5) + '" text-anchor="end" font-size="8" fill="#6b7280">' + label + '%</text>';
+      // Right axis ticks
+      svg += '<line x1="' + xRight + '" y1="' + y + '" x2="' + (xRight + 4) + '" y2="' + y + '" stroke="#374151" stroke-width="1"/>';
+      svg += '<text x="' + (xRight + 7) + '" y="' + (y + 3.5) + '" text-anchor="start" font-size="8" fill="#6b7280">' + label + '%</text>';
+    });
+
+    // Tick marks on center (likelihood ratio)
+    const lrTicks = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100];
+    lrTicks.forEach(lr => {
+      const y = lrToY(lr);
+      const label = lr < 1 ? lr.toFixed(2).replace(/0+$/, '').replace(/\.$/, '') : lr.toFixed(0);
+      svg += '<line x1="' + (xMid - 4) + '" y1="' + y + '" x2="' + (xMid + 4) + '" y2="' + y + '" stroke="#374151" stroke-width="1"/>';
+      svg += '<text x="' + (xMid - 7) + '" y="' + (y + 3.5) + '" text-anchor="end" font-size="8" fill="#6b7280">' + label + '</text>';
+    });
+
+    // Clamp LR for display
+    const clampLR = lr => Math.max(0.01, Math.min(100, lr));
+
+    // Red line: pretest -> PLR -> post-test(+)
+    const plrClamped = clampLR(plr);
+    svg += '<line x1="' + xLeft + '" y1="' + probToY(pretest) + '" x2="' + xMid + '" y2="' + lrToY(plrClamped) + '" stroke="#dc2626" stroke-width="1.8" opacity="0.8"/>';
+    svg += '<line x1="' + xMid + '" y1="' + lrToY(plrClamped) + '" x2="' + xRight + '" y2="' + probToY(Math.max(0.01, Math.min(0.99, posttestPos))) + '" stroke="#dc2626" stroke-width="1.8" opacity="0.8"/>';
+    // Dots
+    svg += '<circle cx="' + xLeft + '" cy="' + probToY(pretest) + '" r="4" fill="#dc2626"/>';
+    svg += '<circle cx="' + xMid + '" cy="' + lrToY(plrClamped) + '" r="3.5" fill="#dc2626"/>';
+    svg += '<circle cx="' + xRight + '" cy="' + probToY(Math.max(0.01, Math.min(0.99, posttestPos))) + '" r="4" fill="#dc2626"/>';
+
+    // Green line: pretest -> NLR -> post-test(-)
+    const nlrClamped = clampLR(nlr);
+    svg += '<line x1="' + xLeft + '" y1="' + probToY(pretest) + '" x2="' + xMid + '" y2="' + lrToY(nlrClamped) + '" stroke="#16a34a" stroke-width="1.8" opacity="0.8"/>';
+    svg += '<line x1="' + xMid + '" y1="' + lrToY(nlrClamped) + '" x2="' + xRight + '" y2="' + probToY(Math.max(0.01, Math.min(0.99, posttestNeg))) + '" stroke="#16a34a" stroke-width="1.8" opacity="0.8"/>';
+    // Dots
+    svg += '<circle cx="' + xLeft + '" cy="' + probToY(pretest) + '" r="4" fill="#16a34a"/>';
+    svg += '<circle cx="' + xMid + '" cy="' + lrToY(nlrClamped) + '" r="3.5" fill="#16a34a"/>';
+    svg += '<circle cx="' + xRight + '" cy="' + probToY(Math.max(0.01, Math.min(0.99, posttestNeg))) + '" r="4" fill="#16a34a"/>';
+
+    // Legend
+    svg += '<line x1="20" y1="' + (H - 10) + '" x2="35" y2="' + (H - 10) + '" stroke="#dc2626" stroke-width="2"/>';
+    svg += '<text x="38" y="' + (H - 6) + '" font-size="8" fill="#dc2626">PLR (test +)</text>';
+    svg += '<line x1="110" y1="' + (H - 10) + '" x2="125" y2="' + (H - 10) + '" stroke="#16a34a" stroke-width="2"/>';
+    svg += '<text x="128" y="' + (H - 6) + '" font-size="8" fill="#16a34a">NLR (test \u2212)</text>';
+
+    svg += '</svg>';
+
+    // Text summary table below
+    let html = svg;
+    html += '<table style="font-size:0.82rem;border-collapse:collapse;margin-top:8px">';
     html += '<tr><td style="padding:2px 8px">Pre-test probability</td><td style="font-weight:600">' + (pretest * 100).toFixed(1) + '%</td></tr>';
+    html += '<tr><td style="padding:2px 8px">Positive LR (PLR)</td><td style="font-weight:600">' + plr.toFixed(2) + '</td></tr>';
+    html += '<tr><td style="padding:2px 8px">Negative LR (NLR)</td><td style="font-weight:600">' + nlr.toFixed(2) + '</td></tr>';
     html += '<tr><td style="padding:2px 8px">Post-test probability (test +)</td><td style="font-weight:600;color:var(--danger)">' + (posttestPos * 100).toFixed(1) + '%</td></tr>';
-    html += '<tr><td style="padding:2px 8px">Post-test probability (test −)</td><td style="font-weight:600;color:var(--success)">' + (posttestNeg * 100).toFixed(1) + '%</td></tr>';
+    html += '<tr><td style="padding:2px 8px">Post-test probability (test \u2212)</td><td style="font-weight:600;color:var(--success)">' + (posttestNeg * 100).toFixed(1) + '%</td></tr>';
     html += '</table>';
     resultDiv.innerHTML = html;
   }
