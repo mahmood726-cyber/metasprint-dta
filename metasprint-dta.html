@@ -1499,6 +1499,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
           <div id="advPubBiasContainer" style="margin-top:16px"></div>
           <div id="advRhoSensContainer" style="margin-top:16px"></div>
           <div id="advBootstrapContainer" style="margin-top:16px"></div>
+          <div id="advMetaRegressionContainer" style="margin-top:16px"></div>
           <div id="advRCodeContainer" style="margin-top:16px"></div>
           <!-- Phase 2: Clinical Tools -->
           <div id="advFaganContainer" style="margin-top:16px"></div>
@@ -9274,6 +9275,440 @@ body.dark-mode .input-error { background: #451a1a !important; }
     container.innerHTML = '<h4 style="margin-bottom:8px">Galbraith (Radial) Plot</h4>' + svg + note;
   }
 
+  // --- Rho Sensitivity Analysis ---
+  // Tests DOR CI robustness across fixed rho values
+  function renderRhoSensitivity(result, confLevel) {
+    const container = document.getElementById('advRhoSensContainer');
+    if (!container) return;
+    if (!result || result.mu1 == null || result.mu2 == null || !isFinite(result.seMu1) || !isFinite(result.seMu2)) {
+      container.innerHTML = '';
+      return;
+    }
+    const alpha = 1 - (confLevel ?? 0.95);
+    const critVal = result.critValue ?? ((result.k ?? 30) >= 30 ? normalQuantile(1 - alpha / 2) : tQuantile(1 - alpha / 2, Math.max(1, (result.k ?? 2) - 2)));
+    const mu1 = result.mu1, mu2 = result.mu2;
+    const seMu1 = result.seMu1, seMu2 = result.seMu2;
+    const lnDOR = mu1 + mu2;
+    const dor = Math.exp(lnDOR);
+    const estimatedRho = result.rho;
+    const rhoValues = [-0.9, -0.6, -0.3, 0, 0.3, 0.6, 0.9];
+
+    let html = '<h4 style="margin-bottom:8px">Rho Sensitivity Analysis</h4>';
+    html += '<p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:8px">';
+    html += 'Examines how the correlation (rho) between logit-sensitivity and logit-specificity affects the DOR confidence interval width. ';
+    html += 'The estimated rho from the data is ' + (estimatedRho != null ? estimatedRho.toFixed(3) : 'N/A') + '.</p>';
+    html += '<table style="width:100%;font-size:0.82rem;border-collapse:collapse">';
+    html += '<thead><tr style="border-bottom:2px solid var(--border)">';
+    html += '<th style="text-align:center;padding:4px 8px">Rho</th>';
+    html += '<th style="text-align:center;padding:4px 8px">DOR</th>';
+    html += '<th style="text-align:center;padding:4px 8px">' + ((confLevel ?? 0.95) * 100).toFixed(0) + '% CI</th>';
+    html += '<th style="text-align:center;padding:4px 8px">CI Width (ratio)</th>';
+    html += '</tr></thead><tbody>';
+
+    // Find closest rho to estimated for highlighting
+    let closestIdx = 0;
+    if (estimatedRho != null) {
+      let minDist = Infinity;
+      rhoValues.forEach((rv, i) => {
+        const dist = Math.abs(rv - estimatedRho);
+        if (dist < minDist) { minDist = dist; closestIdx = i; }
+      });
+    }
+
+    const rows = rhoValues.map((rhoFixed, idx) => {
+      const covFixed = rhoFixed * seMu1 * seMu2;
+      const seLnDOR = Math.sqrt(seMu1 * seMu1 + seMu2 * seMu2 + 2 * covFixed);
+      const ciLo = Math.exp(lnDOR - critVal * seLnDOR);
+      const ciHi = Math.exp(lnDOR + critVal * seLnDOR);
+      const ciWidth = ciHi / ciLo; // ratio of upper to lower bound
+      return { rhoFixed, dor, ciLo, ciHi, ciWidth, idx };
+    });
+
+    rows.forEach(r => {
+      const highlight = r.idx === closestIdx && estimatedRho != null;
+      const bgStyle = highlight ? 'background:#e0f2fe;font-weight:600' : '';
+      html += '<tr style="border-bottom:1px solid var(--border);' + bgStyle + '">';
+      html += '<td style="text-align:center;padding:4px 8px">' + r.rhoFixed.toFixed(1) + (highlight ? ' *' : '') + '</td>';
+      html += '<td style="text-align:center;padding:4px 8px">' + r.dor.toFixed(2) + '</td>';
+      html += '<td style="text-align:center;padding:4px 8px">' + r.ciLo.toFixed(2) + ' \u2013 ' + r.ciHi.toFixed(2) + '</td>';
+      html += '<td style="text-align:center;padding:4px 8px">' + r.ciWidth.toFixed(2) + '</td>';
+      html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+    html += '<p style="font-size:0.75rem;color:var(--text-muted);margin-top:6px">';
+    html += '* Row closest to estimated rho is highlighted. CI width is expressed as the ratio of upper to lower CI bound. ';
+    html += 'Positive rho (common in DTA) widens CI; negative rho narrows it. ';
+    html += 'If the CI changes substantially across rho values, results are sensitive to this assumption.</p>';
+    container.innerHTML = html;
+  }
+
+  // --- Bootstrap Confidence Intervals ---
+  // Non-parametric bootstrap resampling of study-level data
+  function renderBootstrapCI(result, confLevel) {
+    const container = document.getElementById('advBootstrapContainer');
+    if (!container) return;
+    const studies = result?.studyData;
+    if (!studies || studies.length < 4) {
+      container.innerHTML = studies && studies.length > 0 && studies.length < 4
+        ? '<h4 style="margin-bottom:8px">Bootstrap Confidence Intervals</h4><p style="font-size:0.82rem;color:var(--text-muted)">Requires at least 4 studies (k=' + studies.length + ').</p>'
+        : '';
+      return;
+    }
+    confLevel = confLevel ?? 0.95;
+    const alpha = 1 - confLevel;
+    const B = 2000;
+    const k = studies.length;
+
+    // Seeded LCG PRNG for deterministic results
+    let _seed = 42;
+    function lcgRand() {
+      _seed = (_seed * 1664525 + 1013904223) & 0x7fffffff;
+      return _seed / 0x7fffffff;
+    }
+
+    const bootSens = [], bootSpec = [], bootDOR = [];
+    let failCount = 0;
+
+    for (let b = 0; b < B; b++) {
+      // Resample k studies with replacement
+      const sample = [];
+      for (let i = 0; i < k; i++) {
+        const idx = Math.floor(lcgRand() * k);
+        sample.push(studies[idx]);
+      }
+      try {
+        const bResult = improvedBivariatePool(sample, confLevel);
+        if (bResult && isFinite(bResult.pooledSens) && isFinite(bResult.pooledSpec) && isFinite(bResult.dor) && bResult.dor > 0) {
+          bootSens.push(bResult.pooledSens);
+          bootSpec.push(bResult.pooledSpec);
+          bootDOR.push(bResult.dor);
+        } else {
+          failCount++;
+        }
+      } catch (e) {
+        failCount++;
+      }
+    }
+
+    // Check failure rate
+    if (failCount > B * 0.5) {
+      container.innerHTML = '<h4 style="margin-bottom:8px">Bootstrap Confidence Intervals</h4>' +
+        '<p style="font-size:0.82rem;color:var(--danger)">Bootstrap failed: >' + (failCount) + '/' + B + ' resamples produced invalid results. Results not shown.</p>';
+      return;
+    }
+
+    // Sort for percentile CI
+    bootSens.sort((a, b) => a - b);
+    bootSpec.sort((a, b) => a - b);
+    bootDOR.sort((a, b) => a - b);
+
+    const nBoot = bootSens.length;
+    const loIdx = Math.max(0, Math.floor((alpha / 2) * nBoot) - 1);
+    const hiIdx = Math.min(nBoot - 1, Math.ceil((1 - alpha / 2) * nBoot) - 1);
+
+    const bootSensCI = [bootSens[loIdx], bootSens[hiIdx]];
+    const bootSpecCI = [bootSpec[loIdx], bootSpec[hiIdx]];
+    const bootDORCI = [bootDOR[loIdx], bootDOR[hiIdx]];
+
+    // Model CIs from result
+    const modelSensCI = result.sensCI ?? [NaN, NaN];
+    const modelSpecCI = result.specCI ?? [NaN, NaN];
+    const modelDORCI = result.dorCI ?? [NaN, NaN];
+    const pctLabel = ((confLevel) * 100).toFixed(0) + '%';
+
+    let html = '<h4 style="margin-bottom:8px">Bootstrap Confidence Intervals</h4>';
+    html += '<p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:8px">';
+    html += 'Non-parametric bootstrap (B=' + nBoot + ' valid of ' + B + ' resamples, seed=42). ';
+    html += 'Percentile method compared to model-based ' + pctLabel + ' CIs.</p>';
+
+    html += '<table style="width:100%;font-size:0.82rem;border-collapse:collapse">';
+    html += '<thead><tr style="border-bottom:2px solid var(--border)">';
+    html += '<th style="text-align:left;padding:4px 8px">Parameter</th>';
+    html += '<th style="text-align:center;padding:4px 8px">Point Est.</th>';
+    html += '<th style="text-align:center;padding:4px 8px">Model CI</th>';
+    html += '<th style="text-align:center;padding:4px 8px">Bootstrap Percentile CI</th>';
+    html += '</tr></thead><tbody>';
+
+    function fmtCI(lo, hi, mult) {
+      mult = mult ?? 1;
+      if (!isFinite(lo) || !isFinite(hi)) return 'N/A';
+      return (lo * mult).toFixed(mult === 100 ? 1 : 2) + ' \u2013 ' + (hi * mult).toFixed(mult === 100 ? 1 : 2);
+    }
+
+    // Sensitivity
+    html += '<tr style="border-bottom:1px solid var(--border)">';
+    html += '<td style="padding:4px 8px">Sensitivity</td>';
+    html += '<td style="text-align:center">' + ((result.pooledSens ?? 0) * 100).toFixed(1) + '%</td>';
+    html += '<td style="text-align:center">' + fmtCI(modelSensCI[0], modelSensCI[1], 100) + '%</td>';
+    html += '<td style="text-align:center">' + fmtCI(bootSensCI[0], bootSensCI[1], 100) + '%</td>';
+    html += '</tr>';
+
+    // Specificity
+    html += '<tr style="border-bottom:1px solid var(--border)">';
+    html += '<td style="padding:4px 8px">Specificity</td>';
+    html += '<td style="text-align:center">' + ((result.pooledSpec ?? 0) * 100).toFixed(1) + '%</td>';
+    html += '<td style="text-align:center">' + fmtCI(modelSpecCI[0], modelSpecCI[1], 100) + '%</td>';
+    html += '<td style="text-align:center">' + fmtCI(bootSpecCI[0], bootSpecCI[1], 100) + '%</td>';
+    html += '</tr>';
+
+    // DOR
+    html += '<tr style="border-bottom:1px solid var(--border)">';
+    html += '<td style="padding:4px 8px">DOR</td>';
+    html += '<td style="text-align:center">' + (result.dor ?? 0).toFixed(2) + '</td>';
+    html += '<td style="text-align:center">' + fmtCI(modelDORCI[0], modelDORCI[1]) + '</td>';
+    html += '<td style="text-align:center">' + fmtCI(bootDORCI[0], bootDORCI[1]) + '</td>';
+    html += '</tr>';
+
+    html += '</tbody></table>';
+
+    if (failCount > 0) {
+      html += '<p style="font-size:0.75rem;color:var(--text-muted);margin-top:4px">' + failCount + ' of ' + B + ' resamples failed (' + (failCount / B * 100).toFixed(1) + '%) and were excluded.</p>';
+    }
+    html += '<p style="font-size:0.75rem;color:var(--text-muted);margin-top:4px">';
+    html += 'Large discrepancies between model-based and bootstrap CIs may indicate model misspecification or small-sample instability.</p>';
+    container.innerHTML = html;
+  }
+
+  // --- DTA Meta-Regression with Bubble Plot ---
+  // Univariate random-effects regression of log(DOR) on study covariates
+  function runDTAMetaRegression(result, confLevel) {
+    const container = document.getElementById('advMetaRegressionContainer');
+    if (!container) return;
+    const studies = result?.studyData;
+    if (!studies || studies.length < 3) {
+      container.innerHTML = '';
+      return;
+    }
+    confLevel = confLevel ?? 0.95;
+    const alpha = 1 - confLevel;
+
+    // --- Auto-detect covariate ---
+    // Priority: threshold (numeric) > year from authorYear > covariate field
+    let covName = null;
+    let covValues = [];
+
+    // Try threshold field first
+    const threshVals = studies.map(s => {
+      const v = parseFloat(s.threshold);
+      return isFinite(v) ? v : null;
+    });
+    const threshCount = threshVals.filter(v => v !== null).length;
+    if (threshCount >= 3) {
+      covName = 'Threshold';
+      covValues = threshVals;
+    }
+
+    // Try covariate field
+    if (!covName) {
+      const covVals = studies.map(s => {
+        const raw = s.covariate ?? s.covariate1 ?? '';
+        const v = parseFloat(raw);
+        return isFinite(v) ? v : null;
+      });
+      const covCount = covVals.filter(v => v !== null).length;
+      if (covCount >= 3) {
+        covName = 'Covariate';
+        covValues = covVals;
+      }
+    }
+
+    // Try year from authorYear
+    if (!covName) {
+      const yearVals = studies.map(s => {
+        const ay = String(s.authorYear ?? '');
+        const m = ay.match(/\b(19|20)\d{2}\b/);
+        return m ? parseInt(m[0]) : null;
+      });
+      const yearCount = yearVals.filter(v => v !== null).length;
+      if (yearCount >= 3) {
+        covName = 'Publication Year';
+        covValues = yearVals;
+      }
+    }
+
+    if (!covName) {
+      container.innerHTML = '<h4 style="margin-bottom:8px">Meta-Regression (log DOR)</h4>' +
+        '<p style="font-size:0.82rem;color:var(--text-muted)">No numeric covariate detected. ' +
+        'Add threshold values, a numeric covariate, or ensure study labels contain publication years.</p>';
+      return;
+    }
+
+    // --- Build valid pairs ---
+    const valid = [];
+    for (let i = 0; i < studies.length; i++) {
+      const s = studies[i];
+      const x = covValues[i];
+      if (x === null) continue;
+      const tp = parseInt(s.tp), fp = parseInt(s.fp), fn = parseInt(s.fn), tn = parseInt(s.tn);
+      if ([tp, fp, fn, tn].some(v => isNaN(v) || v < 0)) continue;
+      // Continuity correction for zeros
+      const hasZero = tp === 0 || fp === 0 || fn === 0 || tn === 0;
+      const cc = hasZero ? 0.5 : 0;
+      const tpc = tp + cc, fpc = fp + cc, fnc = fn + cc, tnc = tn + cc;
+      const logDOR = Math.log((tpc * tnc) / (fpc * fnc));
+      const seLnDOR = Math.sqrt(1 / tpc + 1 / fpc + 1 / fnc + 1 / tnc);
+      if (!isFinite(logDOR) || !isFinite(seLnDOR) || seLnDOR <= 0) continue;
+      valid.push({ x, logDOR, seLnDOR, vi: seLnDOR * seLnDOR, label: s.authorYear ?? ('Study ' + (i + 1)) });
+    }
+
+    if (valid.length < 3) {
+      container.innerHTML = '<h4 style="margin-bottom:8px">Meta-Regression (log DOR)</h4>' +
+        '<p style="font-size:0.82rem;color:var(--text-muted)">Insufficient valid data points for regression (need \u22653, have ' + valid.length + ').</p>';
+      return;
+    }
+
+    const kv = valid.length;
+    const xs = valid.map(v => v.x);
+    const ys = valid.map(v => v.logDOR);
+    const vis = valid.map(v => v.vi);
+
+    // --- Fixed-effect WLS first to get Q_resid ---
+    const wFE = vis.map(v => 1 / v);
+    const swFE = wFE.reduce((a, b) => a + b, 0);
+    const xbarFE = wFE.reduce((a, w, i) => a + w * xs[i], 0) / swFE;
+    const ybarFE = wFE.reduce((a, w, i) => a + w * ys[i], 0) / swFE;
+    const numFE = wFE.reduce((a, w, i) => a + w * (xs[i] - xbarFE) * (ys[i] - ybarFE), 0);
+    const denFE = wFE.reduce((a, w, i) => a + w * (xs[i] - xbarFE) * (xs[i] - xbarFE), 0);
+    if (Math.abs(denFE) < 1e-15) {
+      container.innerHTML = '<h4 style="margin-bottom:8px">Meta-Regression (log DOR)</h4>' +
+        '<p style="font-size:0.82rem;color:var(--danger)">Covariate has zero variance \u2014 cannot fit regression.</p>';
+      return;
+    }
+    const slopeFE = numFE / denFE;
+    const interceptFE = ybarFE - slopeFE * xbarFE;
+
+    // Q_resid from FE model
+    const QresidFE = wFE.reduce((a, w, i) => {
+      const resid = ys[i] - interceptFE - slopeFE * xs[i];
+      return a + w * resid * resid;
+    }, 0);
+
+    // DL tau2 from residual heterogeneity
+    const CmatFE = swFE - wFE.reduce((s, w) => s + w * w, 0) / swFE;
+    const tau2 = Math.max(0, (QresidFE - (kv - 2)) / CmatFE);
+
+    // --- Random-effects WLS ---
+    const wRE = vis.map(v => 1 / (v + tau2));
+    const swRE = wRE.reduce((a, b) => a + b, 0);
+    const xbarRE = wRE.reduce((a, w, i) => a + w * xs[i], 0) / swRE;
+    const ybarRE = wRE.reduce((a, w, i) => a + w * ys[i], 0) / swRE;
+    const numRE = wRE.reduce((a, w, i) => a + w * (xs[i] - xbarRE) * (ys[i] - ybarRE), 0);
+    const denRE = wRE.reduce((a, w, i) => a + w * (xs[i] - xbarRE) * (xs[i] - xbarRE), 0);
+    if (Math.abs(denRE) < 1e-15) {
+      container.innerHTML = '<h4 style="margin-bottom:8px">Meta-Regression (log DOR)</h4>' +
+        '<p style="font-size:0.82rem;color:var(--danger)">Covariate has zero variance under RE model.</p>';
+      return;
+    }
+    const slope = numRE / denRE;
+    const intercept = ybarRE - slope * xbarRE;
+
+    // Residuals and Q_resid for RE
+    const QresRE = wRE.reduce((a, w, i) => {
+      const resid = ys[i] - intercept - slope * xs[i];
+      return a + w * resid * resid;
+    }, 0);
+    const wMSE = Math.max(1e-15, QresRE / Math.max(1, kv - 2));
+    const seSlope = Math.sqrt(wMSE / denRE);
+    const tStat = slope / seSlope;
+    const dfReg = kv - 2;
+    const pValue = dfReg > 0 ? 2 * (1 - tCDFfn(Math.abs(tStat), dfReg)) : 1;
+
+    // R2 analogue
+    const QorigTotal = wRE.reduce((a, w, i) => a + w * (ys[i] - ybarRE) * (ys[i] - ybarRE), 0);
+    const R2tau = QorigTotal > 0 ? Math.max(0, 1 - QresRE / QorigTotal) : 0;
+
+    // --- Result table ---
+    let html = '<h4 style="margin-bottom:8px">Meta-Regression (log DOR on ' + escapeHtml(covName) + ')</h4>';
+    html += '<p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:8px">';
+    html += 'Univariate random-effects weighted least squares regression (DerSimonian-Laird tau\u00B2). ';
+    html += 'k=' + kv + ' studies with valid covariate data.</p>';
+
+    html += '<table style="width:100%;max-width:520px;font-size:0.82rem;border-collapse:collapse">';
+    html += '<tbody>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">Intercept</td><td style="text-align:center">' + intercept.toFixed(4) + '</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">Slope</td><td style="text-align:center">' + slope.toFixed(4) + '</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">SE(Slope)</td><td style="text-align:center">' + seSlope.toFixed(4) + '</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">t-statistic</td><td style="text-align:center">' + tStat.toFixed(3) + ' (df=' + dfReg + ')</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">p-value</td><td style="text-align:center;' + (pValue < 0.05 ? 'color:var(--danger);font-weight:600' : '') + '">' + (pValue < 0.001 ? '< 0.001' : pValue.toFixed(3)) + '</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">Residual \u03C4\u00B2</td><td style="text-align:center">' + tau2.toFixed(4) + '</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">R\u00B2 analogue</td><td style="text-align:center">' + (R2tau * 100).toFixed(1) + '%</td></tr>';
+    html += '</tbody></table>';
+
+    // --- Bubble scatter plot (SVG) ---
+    const svgW = 480, svgH = 340;
+    const margin = { top: 20, right: 20, bottom: 50, left: 60 };
+    const plotW = svgW - margin.left - margin.right;
+    const plotH = svgH - margin.top - margin.bottom;
+
+    const xMin = Math.min(...xs), xMax = Math.max(...xs);
+    const yMin = Math.min(...ys), yMax = Math.max(...ys);
+    const xPad = (xMax - xMin) * 0.1 || 1;
+    const yPad = (yMax - yMin) * 0.1 || 1;
+    const xLo = xMin - xPad, xHi = xMax + xPad;
+    const yLo = yMin - yPad, yHi = yMax + yPad;
+
+    function toSvgX(v) { return margin.left + (v - xLo) / (xHi - xLo) * plotW; }
+    function toSvgY(v) { return margin.top + plotH - (v - yLo) / (yHi - yLo) * plotH; }
+
+    // Bubble size proportional to RE weight (scaled to 4-18 px radius)
+    const maxW = Math.max(...wRE), minW = Math.min(...wRE);
+    function bubbleR(w) {
+      if (maxW === minW) return 8;
+      return 4 + 14 * (w - minW) / (maxW - minW);
+    }
+
+    let svg = '<svg viewBox="0 0 ' + svgW + ' ' + svgH + '" style="width:100%;max-width:' + svgW + 'px;height:auto;font-family:system-ui,sans-serif">';
+
+    // Axes
+    svg += '<line x1="' + margin.left + '" y1="' + (margin.top + plotH) + '" x2="' + (margin.left + plotW) + '" y2="' + (margin.top + plotH) + '" stroke="var(--border)" stroke-width="1"/>';
+    svg += '<line x1="' + margin.left + '" y1="' + margin.top + '" x2="' + margin.left + '" y2="' + (margin.top + plotH) + '" stroke="var(--border)" stroke-width="1"/>';
+
+    // Axis ticks (5 each)
+    for (let i = 0; i <= 4; i++) {
+      const xv = xLo + (xHi - xLo) * i / 4;
+      const yv = yLo + (yHi - yLo) * i / 4;
+      svg += '<text x="' + toSvgX(xv) + '" y="' + (margin.top + plotH + 16) + '" text-anchor="middle" font-size="10" fill="var(--text-muted)">' + xv.toFixed(1) + '</text>';
+      svg += '<text x="' + (margin.left - 8) + '" y="' + (toSvgY(yv) + 3) + '" text-anchor="end" font-size="10" fill="var(--text-muted)">' + yv.toFixed(1) + '</text>';
+    }
+
+    // Axis labels
+    svg += '<text x="' + (margin.left + plotW / 2) + '" y="' + (svgH - 6) + '" text-anchor="middle" font-size="11" fill="var(--text-muted)">' + escapeHtml(covName) + '</text>';
+    svg += '<text x="14" y="' + (margin.top + plotH / 2) + '" text-anchor="middle" font-size="11" fill="var(--text-muted)" transform="rotate(-90,14,' + (margin.top + plotH / 2) + ')">log(DOR)</text>';
+
+    // Regression line
+    const regX1 = xLo, regX2 = xHi;
+    const regY1 = intercept + slope * regX1;
+    const regY2 = intercept + slope * regX2;
+    // Clip to plot area
+    const lineY1Clipped = Math.max(yLo, Math.min(yHi, regY1));
+    const lineY2Clipped = Math.max(yLo, Math.min(yHi, regY2));
+    svg += '<line x1="' + toSvgX(regX1) + '" y1="' + toSvgY(lineY1Clipped) + '" x2="' + toSvgX(regX2) + '" y2="' + toSvgY(lineY2Clipped) + '" stroke="var(--primary)" stroke-width="2" stroke-dasharray="6,3"/>';
+
+    // Bubbles
+    valid.forEach((v, i) => {
+      const cx = toSvgX(v.x);
+      const cy = toSvgY(v.logDOR);
+      const r = bubbleR(wRE[i]);
+      svg += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r.toFixed(1) + '" fill="var(--primary)" fill-opacity="0.35" stroke="var(--primary)" stroke-width="1">';
+      svg += '<title>' + escapeHtml(v.label) + ': ' + escapeHtml(covName) + '=' + v.x + ', logDOR=' + v.logDOR.toFixed(2) + '</title></circle>';
+    });
+
+    svg += '</svg>';
+
+    html += '<div style="margin-top:12px">' + svg + '</div>';
+    html += '<p style="font-size:0.75rem;color:var(--text-muted);margin-top:6px">';
+    html += 'Bubble size proportional to study weight (1/(vi+\u03C4\u00B2)). Dashed line = RE regression. ';
+    if (pValue < 0.05) {
+      html += '<strong>Significant association detected (p=' + (pValue < 0.001 ? '<0.001' : pValue.toFixed(3)) + ').</strong> ';
+    } else {
+      html += 'No significant association (p=' + pValue.toFixed(3) + '). ';
+    }
+    html += 'Interpret with caution: ecological fallacy applies, and with k=' + kv + ' studies, power is limited.</p>';
+
+    container.innerHTML = html;
+  }
+
   // --- Render Advanced DTA Features ---
   function renderAdvancedDTA(result, confLevel) {
     if (!result || !result.studyData) return;
@@ -9402,6 +9837,11 @@ body.dark-mode .input-error { background: #451a1a !important; }
     renderCrosshairsPlot(result, confLevel);
     renderLabbePlot(result, confLevel);
     renderGalbraithPlot(result);
+
+    // Wire Phase 2-3: Sensitivity analyses and meta-regression
+    renderRhoSensitivity(result, confLevel);
+    renderBootstrapCI(result, confLevel);
+    runDTAMetaRegression(result, confLevel);
   }
 
   // --- Fagan Nomogram Calculator (SVG three-line nomogram) ---
