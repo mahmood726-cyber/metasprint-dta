@@ -1216,10 +1216,10 @@ body.dark-mode .input-error { background: #451a1a !important; }
       <div class="protocol-form">
         <div class="form-group"><label for="protTitle">Review Title:</label>
           <input id="protTitle" maxlength="500" placeholder="e.g., Diagnostic accuracy of high-sensitivity troponin for acute MI: a systematic review"></div>
-        <div class="form-group"><label for="protP">Population:</label><input id="protP" maxlength="500" placeholder="e.g., adults presenting to ED with suspected ACS"></div>
-        <div class="form-group"><label for="protI">Index Test:</label><input id="protI" maxlength="500" placeholder="e.g., high-sensitivity cardiac troponin I or T"></div>
-        <div class="form-group"><label for="protC">Reference Standard:</label><input id="protC" maxlength="500" placeholder="e.g., coronary angiography, adjudicated diagnosis"></div>
-        <div class="form-group"><label for="protO">Target Condition:</label><input id="protO" maxlength="500" placeholder="e.g., acute myocardial infarction (Type 1 MI)"></div>
+        <div class="form-group"><label for="protP">Population:</label><input id="protP" maxlength="500" placeholder="e.g., adults presenting to ED with suspected ACS" oninput="_debouncedSavePICO()" onchange="savePICO()"></div>
+        <div class="form-group"><label for="protI">Index Test:</label><input id="protI" maxlength="500" placeholder="e.g., high-sensitivity cardiac troponin I or T" oninput="_debouncedSavePICO()" onchange="savePICO()"></div>
+        <div class="form-group"><label for="protC">Reference Standard:</label><input id="protC" maxlength="500" placeholder="e.g., coronary angiography, adjudicated diagnosis" oninput="_debouncedSavePICO()" onchange="savePICO()"></div>
+        <div class="form-group"><label for="protO">Target Condition:</label><input id="protO" maxlength="500" placeholder="e.g., acute myocardial infarction (Type 1 MI)" oninput="_debouncedSavePICO()" onchange="savePICO()"></div>
         <div class="form-group"><label for="protStudyType">Study Types:</label>
           <select id="protStudyType"><option>Cross-sectional DTA studies</option><option>Cohort DTA studies</option><option>Case-control DTA studies</option><option>All DTA study designs</option></select></div>
         <div style="display:flex;gap:8px">
@@ -17141,8 +17141,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
     for (const [searchId, protId, val] of fields) {
       const searchEl = document.getElementById(searchId);
       const protEl = document.getElementById(protId);
-      if (searchEl && !searchEl.value) searchEl.value = val;
-      if (protEl && !protEl.value) protEl.value = val;
+      if (searchEl) searchEl.value = val;
+      if (protEl) protEl.value = val;
     }
   }
 
