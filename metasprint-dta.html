@@ -7504,6 +7504,20 @@ body.dark-mode .input-error { background: #451a1a !important; }
     }).filter(d => d !== null);
   }
 
+  // --- I² Confidence Interval (Higgins-Thompson 2002, inversion of Q-test) ---
+  function I2ConfidenceInterval(Q, k, confLevel) {
+    if (k < 3) return { I2: 0, I2_lo: 0, I2_hi: 0 };
+    const df = k - 1;
+    const I2 = Math.max(0, (Q - df) / Q * 100);
+    const alpha = 1 - (confLevel ?? 0.95);
+    // Inversion of Q-test: I2 bounds from chi2 quantiles
+    const Q_upper = chi2Quantile(1 - alpha / 2, df);
+    const Q_lower = chi2Quantile(alpha / 2, df);
+    const I2_lo = Q > Q_upper ? Math.max(0, (Q - Q_upper) / Q * 100) : 0;
+    const I2_hi = Q > Q_lower ? Math.min(100, (Q - Q_lower) / Q * 100) : 0;
+    return { I2, I2_lo, I2_hi };
+  }
+
   // --- Bivariate DL pooling (matches R mada::reitsma) ---
   function improvedBivariatePool(studies, confLevel) {
     confLevel = confLevel ?? 0.95;
@@ -7537,23 +7551,30 @@ body.dark-mode .input-error { background: #451a1a !important; }
       for (let i = 0; i < n; i++) { cov += (r1[i] - mr1) * (r2[i] - mr2); v1 += (r1[i] - mr1) ** 2; v2 += (r2[i] - mr2) ** 2; }
       if (v1 > 0 && v2 > 0) rho = Math.max(-0.99, Math.min(0.99, cov / Math.sqrt(v1 * v2)));
     }
-    const I2_sens = Q1 > 0 ? Math.max(0, (Q1 - (n - 1)) / Q1 * 100) : 0;
-    const I2_spec = Q2 > 0 ? Math.max(0, (Q2 - (n - 1)) / Q2 * 100) : 0;
+    const I2_sens_obj = I2ConfidenceInterval(Q1, n, confLevel);
+    const I2_spec_obj = I2ConfidenceInterval(Q2, n, confLevel);
+    const I2_sens = I2_sens_obj.I2;
+    const I2_spec = I2_spec_obj.I2;
     const pQ_sens = n > 1 ? 1 - chi2CDF(Q1, n - 1) : 1, pQ_spec = n > 1 ? 1 - chi2CDF(Q2, n - 1) : 1;
     const pooledSens = invLogit(mu1), pooledSpec = invLogit(mu2);
     const sensLR = Math.max(0.001, Math.min(0.999, pooledSens));
     const specLR = Math.max(0.001, Math.min(0.999, pooledSpec));
+    // Prediction interval: mu +/- t(k-2) * sqrt(tau2 + SE2) -- Cochrane Handbook 10.10
+    const piCrit = n >= 3 ? tQuantile(1 - alpha / 2, Math.max(1, n - 2)) : critValue;
+    const sensPredInt = [invLogit(mu1 - piCrit * Math.sqrt(tau2_1 + seMu1 * seMu1)), invLogit(mu1 + piCrit * Math.sqrt(tau2_1 + seMu1 * seMu1))];
+    const specPredInt = [invLogit(mu2 - piCrit * Math.sqrt(tau2_2 + seMu2 * seMu2)), invLogit(mu2 + piCrit * Math.sqrt(tau2_2 + seMu2 * seMu2))];
     return {
       pooledSens, pooledSpec,
       plr: sensLR / (1 - specLR), nlr: (1 - sensLR) / specLR,
       dor: (sensLR * specLR) / ((1 - sensLR) * (1 - specLR)),
       sensCI: [invLogit(mu1 - critValue * seMu1), invLogit(mu1 + critValue * seMu1)],
       specCI: [invLogit(mu2 - critValue * seMu2), invLogit(mu2 + critValue * seMu2)],
+      sensPredInt, specPredInt,
       dorCI: [Math.exp((mu1 + mu2) - critValue * Math.sqrt(seMu1 ** 2 + seMu2 ** 2 + 2 * rho * seMu1 * seMu2)),
               Math.exp((mu1 + mu2) + critValue * Math.sqrt(seMu1 ** 2 + seMu2 ** 2 + 2 * rho * seMu1 * seMu2))],
       mu1, mu2, seMu1, seMu2, covMu12: rho * seMu1 * seMu2,
       tau2_sens: tau2_1, tau2_spec: tau2_2,
-      heterogeneity: { Q_sens: Q1, Q_spec: Q2, I2_sens, I2_spec, pQ_sens, pQ_spec, tau2_sens: tau2_1, tau2_spec: tau2_2 },
+      heterogeneity: { Q_sens: Q1, Q_spec: Q2, I2_sens, I2_spec, I2_sens_CI: [I2_sens_obj.I2_lo, I2_sens_obj.I2_hi], I2_spec_CI: [I2_spec_obj.I2_lo, I2_spec_obj.I2_hi], pQ_sens, pQ_spec, tau2_sens: tau2_1, tau2_spec: tau2_2 },
       rho, k: n, critValue, ciMethod: n >= 30 ? 'z-normal' : 'HKSJ-t', method: 'Bivariate DL (Reitsma-type)',
       studyData: studies.map((s, i) => ({ ...s, wSens: w1_re[i], wSpec: w2_re[i], weightPctSens: (w1_re[i] / sumW1_re * 100).toFixed(1), weightPctSpec: (w2_re[i] / sumW2_re * 100).toFixed(1) }))
     };
@@ -8943,8 +8964,10 @@ body.dark-mode .input-error { background: #451a1a !important; }
       '<div class="stat-card"><div class="stat-label">Studies (k)</div><div class="stat-value">' + result.k + '</div></div>' +
       '<div class="stat-card"><div class="stat-label">Pooled Sens</div><div class="stat-value">' + (result.pooledSens * 100).toFixed(1) + '%</div></div>' +
       '<div class="stat-card"><div class="stat-label">Sens ' + confPct + '% CI</div><div class="stat-value">[' + (result.sensCI[0] * 100).toFixed(1) + ', ' + (result.sensCI[1] * 100).toFixed(1) + ']</div></div>' +
+      (result.sensPredInt && result.k >= 3 ? '<div class="stat-card" title="Prediction interval: range where a future study\'s true sensitivity is expected to fall"><div class="stat-label">Sens PI</div><div class="stat-value">[' + (result.sensPredInt[0] * 100).toFixed(1) + ', ' + (result.sensPredInt[1] * 100).toFixed(1) + ']</div></div>' : '') +
       '<div class="stat-card"><div class="stat-label">Pooled Spec</div><div class="stat-value">' + (result.pooledSpec * 100).toFixed(1) + '%</div></div>' +
       '<div class="stat-card"><div class="stat-label">Spec ' + confPct + '% CI</div><div class="stat-value">[' + (result.specCI[0] * 100).toFixed(1) + ', ' + (result.specCI[1] * 100).toFixed(1) + ']</div></div>' +
+      (result.specPredInt && result.k >= 3 ? '<div class="stat-card" title="Prediction interval: range where a future study\'s true specificity is expected to fall"><div class="stat-label">Spec PI</div><div class="stat-value">[' + (result.specPredInt[0] * 100).toFixed(1) + ', ' + (result.specPredInt[1] * 100).toFixed(1) + ']</div></div>' : '') +
       '<div class="stat-card" title="Positive Likelihood Ratio = Sens/(1-Spec). PLR>10 strongly rules in disease"><div class="stat-label">PLR</div><div class="stat-value">' + result.plr.toFixed(2) + '</div></div>' +
       '<div class="stat-card" title="Negative Likelihood Ratio = (1-Sens)/Spec. NLR<0.1 strongly rules out disease"><div class="stat-label">NLR</div><div class="stat-value">' + result.nlr.toFixed(3) + '</div></div>' +
       '<div class="stat-card" title="Diagnostic Odds Ratio = (TP×TN)/(FP×FN). Higher = better overall discrimination"><div class="stat-label">DOR</div><div class="stat-value">' + result.dor.toFixed(1) +
@@ -8954,7 +8977,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     }
     summaryHTML += '<div style="width:100%;font-size:0.82rem;color:var(--text-muted);margin-top:8px;line-height:1.5">' +
       '<strong>Method:</strong> ' + escapeHtml(result.method) + ' (' + result.k + ' studies). ' +
-      'Heterogeneity is <strong>' + hetLabel + '</strong> (I\u00B2 Sens=' + i2Sens.toFixed(0) + '%, I\u00B2 Spec=' + i2Spec.toFixed(0) + '%). ' +
+      'Heterogeneity is <strong>' + hetLabel + '</strong> (I\u00B2 Sens=' + i2Sens.toFixed(0) + '%' + (het.I2_sens_CI ? ' [' + het.I2_sens_CI[0].toFixed(0) + ' to ' + het.I2_sens_CI[1].toFixed(0) + '%]' : '') + ', I\u00B2 Spec=' + i2Spec.toFixed(0) + '%' + (het.I2_spec_CI ? ' [' + het.I2_spec_CI[0].toFixed(0) + ' to ' + het.I2_spec_CI[1].toFixed(0) + '%]' : '') + '). ' +
       '\u03C4\u00B2 Sens=' + (result.tau2_sens ?? 0).toFixed(3) + ', \u03C4\u00B2 Spec=' + (result.tau2_spec ?? 0).toFixed(3) + '.' +
       (result.rho != null ? ' \u03C1=' + result.rho.toFixed(2) + '.' : '') +
       '</div>';
@@ -9043,12 +9066,16 @@ body.dark-mode .input-error { background: #451a1a !important; }
       hetHtml += '<table style="width:100%;font-size:0.82rem;border-collapse:collapse">';
       hetHtml += '<tr style="border-bottom:2px solid var(--border)"><th style="padding:4px 8px;text-align:left"></th><th style="padding:4px 8px">Sensitivity</th><th style="padding:4px 8px">Specificity</th></tr>';
       hetHtml += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px">\u03C4\u00B2</td><td style="padding:4px 8px;text-align:center">' + (result.tau2_sens ?? 0).toFixed(4) + '</td><td style="padding:4px 8px;text-align:center">' + (result.tau2_spec ?? 0).toFixed(4) + '</td></tr>';
-      hetHtml += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px">I\u00B2</td><td style="padding:4px 8px;text-align:center">' + i2Sens.toFixed(1) + '%</td><td style="padding:4px 8px;text-align:center">' + i2Spec.toFixed(1) + '%</td></tr>';
+      hetHtml += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px">I\u00B2</td><td style="padding:4px 8px;text-align:center">' + i2Sens.toFixed(1) + '%' + (het.I2_sens_CI ? ' (' + het.I2_sens_CI[0].toFixed(0) + ' to ' + het.I2_sens_CI[1].toFixed(0) + '%)' : '') + '</td><td style="padding:4px 8px;text-align:center">' + i2Spec.toFixed(1) + '%' + (het.I2_spec_CI ? ' (' + het.I2_spec_CI[0].toFixed(0) + ' to ' + het.I2_spec_CI[1].toFixed(0) + '%)' : '') + '</td></tr>';
       if (het.Q_sens != null) {
         hetHtml += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px">Q</td><td style="padding:4px 8px;text-align:center">' + het.Q_sens.toFixed(2) + ' (p=' + (het.pQ_sens < 0.001 ? '<0.001' : het.pQ_sens.toFixed(3)) + ')</td><td style="padding:4px 8px;text-align:center">' + het.Q_spec.toFixed(2) + ' (p=' + (het.pQ_spec < 0.001 ? '<0.001' : het.pQ_spec.toFixed(3)) + ')</td></tr>';
       }
       if (result.rho != null) {
         hetHtml += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px">\u03C1 (correlation)</td><td colspan="2" style="padding:4px 8px;text-align:center">' + result.rho.toFixed(3) + '</td></tr>';
+      }
+      // Prediction intervals row
+      if (result.sensPredInt && result.k >= 3) {
+        hetHtml += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px">Prediction Interval</td><td style="padding:4px 8px;text-align:center">[' + (result.sensPredInt[0] * 100).toFixed(1) + ', ' + (result.sensPredInt[1] * 100).toFixed(1) + ']%</td><td style="padding:4px 8px;text-align:center">[' + (result.specPredInt[0] * 100).toFixed(1) + ', ' + (result.specPredInt[1] * 100).toFixed(1) + ']%</td></tr>';
       }
       hetHtml += '</table>';
       hetEl.innerHTML = hetHtml;
@@ -10356,8 +10383,10 @@ body.dark-mode .input-error { background: #451a1a !important; }
       html += '<td style="text-align:center;padding:6px">' + (r.pooledSens * 100).toFixed(1) + '% [' + (r.sensCI[0] * 100).toFixed(1) + ', ' + (r.sensCI[1] * 100).toFixed(1) + ']</td>';
       html += '<td style="text-align:center;padding:6px">' + (r.pooledSpec * 100).toFixed(1) + '% [' + (r.specCI[0] * 100).toFixed(1) + ', ' + (r.specCI[1] * 100).toFixed(1) + ']</td>';
       html += '<td style="text-align:center;padding:6px">' + r.dor.toFixed(2) + ' [' + (r.dorCI != null ? r.dorCI[0].toFixed(2) : '?') + ', ' + (r.dorCI != null ? r.dorCI[1].toFixed(2) : '?') + ']</td>';
-      html += '<td style="text-align:center;padding:6px">' + (i2s != null ? i2s.toFixed(1) + '%' : 'N/A') + '</td>';
-      html += '<td style="text-align:center;padding:6px">' + (i2p != null ? i2p.toFixed(1) + '%' : 'N/A') + '</td>';
+      var i2sCi = r.heterogeneity != null ? r.heterogeneity.I2_sens_CI : null;
+      var i2pCi = r.heterogeneity != null ? r.heterogeneity.I2_spec_CI : null;
+      html += '<td style="text-align:center;padding:6px">' + (i2s != null ? i2s.toFixed(1) + '%' + (i2sCi ? ' (' + i2sCi[0].toFixed(0) + '\u2013' + i2sCi[1].toFixed(0) + '%)' : '') : 'N/A') + '</td>';
+      html += '<td style="text-align:center;padding:6px">' + (i2p != null ? i2p.toFixed(1) + '%' + (i2pCi ? ' (' + i2pCi[0].toFixed(0) + '\u2013' + i2pCi[1].toFixed(0) + '%)' : '') : 'N/A') + '</td>';
       html += '</tr>';
     });
     html += '</tbody></table>';
@@ -17449,9 +17478,13 @@ body.dark-mode .input-error { background: #451a1a !important; }
       '### Summary Diagnostic Accuracy\n' +
       (result
         ? 'Using the ' + methodName + ', pooled sensitivity was ' + (result.pooledSens * 100).toFixed(1) + '% (' + confPct + '% CI ' +
-          (result.sensCI[0] * 100).toFixed(1) + ' to ' + (result.sensCI[1] * 100).toFixed(1) + ') and pooled specificity was ' +
+          (result.sensCI[0] * 100).toFixed(1) + ' to ' + (result.sensCI[1] * 100).toFixed(1) + ')' +
+          (result.sensPredInt && result.k >= 3 ? ' (prediction interval ' + (result.sensPredInt[0] * 100).toFixed(1) + ' to ' + (result.sensPredInt[1] * 100).toFixed(1) + ')' : '') +
+          ' and pooled specificity was ' +
           (result.pooledSpec * 100).toFixed(1) + '% (' + confPct + '% CI ' + (result.specCI[0] * 100).toFixed(1) + ' to ' +
-          (result.specCI[1] * 100).toFixed(1) + '). ' +
+          (result.specCI[1] * 100).toFixed(1) + ')' +
+          (result.specPredInt && result.k >= 3 ? ' (prediction interval ' + (result.specPredInt[0] * 100).toFixed(1) + ' to ' + (result.specPredInt[1] * 100).toFixed(1) + ')' : '') +
+          '. ' +
           'The diagnostic odds ratio was ' + (result.dor != null ? result.dor.toFixed(2) : 'N/A') +
           (result.dorCI ? ' (' + confPct + '% CI ' + result.dorCI[0].toFixed(2) + ' to ' + result.dorCI[1].toFixed(2) + ')' : '') +
           ', positive likelihood ratio ' + (result.plr != null ? result.plr.toFixed(2) : 'N/A') +
@@ -17462,10 +17495,10 @@ body.dark-mode .input-error { background: #451a1a !important; }
       (result
         ? 'Between-study heterogeneity for sensitivity was ' +
           (((result.heterogeneity?.I2_sens) ?? 0) < 25 ? 'low' : ((result.heterogeneity?.I2_sens) ?? 0) < 50 ? 'moderate' : ((result.heterogeneity?.I2_sens) ?? 0) < 75 ? 'substantial' : 'considerable') +
-          ' (I-squared=' + (result.heterogeneity?.I2_sens != null ? result.heterogeneity.I2_sens.toFixed(1) + '%' : 'N/A') + '). ' +
+          ' (I-squared=' + (result.heterogeneity?.I2_sens != null ? result.heterogeneity.I2_sens.toFixed(1) + '%' + (result.heterogeneity?.I2_sens_CI ? ', ' + confPct + '% CI ' + result.heterogeneity.I2_sens_CI[0].toFixed(0) + ' to ' + result.heterogeneity.I2_sens_CI[1].toFixed(0) + '%' : '') : 'N/A') + '). ' +
           'Heterogeneity for specificity was ' +
           (((result.heterogeneity?.I2_spec) ?? 0) < 25 ? 'low' : ((result.heterogeneity?.I2_spec) ?? 0) < 50 ? 'moderate' : ((result.heterogeneity?.I2_spec) ?? 0) < 75 ? 'substantial' : 'considerable') +
-          ' (I-squared=' + (result.heterogeneity?.I2_spec != null ? result.heterogeneity.I2_spec.toFixed(1) + '%' : 'N/A') + ').'
+          ' (I-squared=' + (result.heterogeneity?.I2_spec != null ? result.heterogeneity.I2_spec.toFixed(1) + '%' + (result.heterogeneity?.I2_spec_CI ? ', ' + confPct + '% CI ' + result.heterogeneity.I2_spec_CI[0].toFixed(0) + ' to ' + result.heterogeneity.I2_spec_CI[1].toFixed(0) + '%' : '') : 'N/A') + ').'
         : '[Awaiting quantitative synthesis]') + '\n\n' +
       '### Publication Bias and Sensitivity Analyses\n' +
       (result && result.deeks?.pValue != null
@@ -17566,12 +17599,14 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const confPct = Math.round((r.confLevel ?? 0.95) * 100);
     const text = 'DTA Meta-Analysis Summary (' + (r.method || 'bivariate') + ')\n' +
       'Studies (k): ' + r.k + '\n' +
-      'Pooled Sensitivity: ' + ((r.pooledSens ?? 0) * 100).toFixed(1) + '% (' + confPct + '% CI: ' + ((r.sensCI?.[0] ?? 0) * 100).toFixed(1) + ' to ' + ((r.sensCI?.[1] ?? 0) * 100).toFixed(1) + ')\n' +
-      'Pooled Specificity: ' + ((r.pooledSpec ?? 0) * 100).toFixed(1) + '% (' + confPct + '% CI: ' + ((r.specCI?.[0] ?? 0) * 100).toFixed(1) + ' to ' + ((r.specCI?.[1] ?? 0) * 100).toFixed(1) + ')\n' +
+      'Pooled Sensitivity: ' + ((r.pooledSens ?? 0) * 100).toFixed(1) + '% (' + confPct + '% CI: ' + ((r.sensCI?.[0] ?? 0) * 100).toFixed(1) + ' to ' + ((r.sensCI?.[1] ?? 0) * 100).toFixed(1) + ')' +
+      (r.sensPredInt && r.k >= 3 ? ' (PI: ' + (r.sensPredInt[0] * 100).toFixed(1) + ' to ' + (r.sensPredInt[1] * 100).toFixed(1) + ')' : '') + '\n' +
+      'Pooled Specificity: ' + ((r.pooledSpec ?? 0) * 100).toFixed(1) + '% (' + confPct + '% CI: ' + ((r.specCI?.[0] ?? 0) * 100).toFixed(1) + ' to ' + ((r.specCI?.[1] ?? 0) * 100).toFixed(1) + ')' +
+      (r.specPredInt && r.k >= 3 ? ' (PI: ' + (r.specPredInt[0] * 100).toFixed(1) + ' to ' + (r.specPredInt[1] * 100).toFixed(1) + ')' : '') + '\n' +
       'DOR: ' + (r.dor ?? 0).toFixed(2) + ', PLR: ' + (r.plr ?? 0).toFixed(2) + ', NLR: ' + (r.nlr ?? 0).toFixed(3) + '\n' +
       (r.auc != null ? 'AUC: ' + r.auc.toFixed(3) + '\n' : '') +
-      'I2 (Sens): ' + (r.I2_sens != null ? r.I2_sens.toFixed(1) + '%' : 'N/A') +
-      ', I2 (Spec): ' + (r.I2_spec != null ? r.I2_spec.toFixed(1) + '%' : 'N/A') + '\n' +
+      'I2 (Sens): ' + (r.heterogeneity?.I2_sens != null ? r.heterogeneity.I2_sens.toFixed(1) + '%' + (r.heterogeneity?.I2_sens_CI ? ' (' + r.heterogeneity.I2_sens_CI[0].toFixed(0) + ' to ' + r.heterogeneity.I2_sens_CI[1].toFixed(0) + '%)' : '') : (r.I2_sens != null ? r.I2_sens.toFixed(1) + '%' : 'N/A')) +
+      ', I2 (Spec): ' + (r.heterogeneity?.I2_spec != null ? r.heterogeneity.I2_spec.toFixed(1) + '%' + (r.heterogeneity?.I2_spec_CI ? ' (' + r.heterogeneity.I2_spec_CI[0].toFixed(0) + ' to ' + r.heterogeneity.I2_spec_CI[1].toFixed(0) + '%)' : '') : (r.I2_spec != null ? r.I2_spec.toFixed(1) + '%' : 'N/A')) + '\n' +
       (r.youdenJ != null ? 'Youden J: ' + r.youdenJ.toFixed(3) + ', NND: ' + (r.youdenJ > 0 ? (1 / r.youdenJ).toFixed(1) : 'N/A') + '\n' : '');
     navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard', 'success'));
   }
@@ -18265,6 +18300,10 @@ body.dark-mode .input-error { background: #451a1a !important; }
       dorCI: r.dorCI ?? null,
       I2_sens: het.I2_sens ?? 0,
       I2_spec: het.I2_spec ?? 0,
+      I2_sens_CI: het.I2_sens_CI ?? null,
+      I2_spec_CI: het.I2_spec_CI ?? null,
+      sensPredInt: r.sensPredInt ?? null,
+      specPredInt: r.specPredInt ?? null,
       tau2_sens: het.tau2_sens ?? 0,
       tau2_spec: het.tau2_spec ?? 0,
       rho: r.rho ?? het.rho ?? null,
@@ -19478,7 +19517,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
            interp === 'good' ? '80\u201390% — most diseased cases are detected' :
            interp === 'fair' ? '70\u201380% — a notable proportion of cases may be missed' :
            '<70% — many diseased cases may go undetected') + ').<br>' +
-          '<span style="font-size:0.78rem;color:var(--text-muted)">Based on ' + dtaData.k + ' studies. I\u00B2<sub>Sens</sub> = ' + dtaData.I2_sens.toFixed(1) + '%.</span>';
+          '<span style="font-size:0.78rem;color:var(--text-muted)">Based on ' + dtaData.k + ' studies. I\u00B2<sub>Sens</sub> = ' + dtaData.I2_sens.toFixed(1) + '%' + (dtaData.I2_sens_CI ? ' (' + dtaData.I2_sens_CI[0].toFixed(0) + ' to ' + dtaData.I2_sens_CI[1].toFixed(0) + '%)' : '') + '.' +
+          (dtaData.sensPredInt && dtaData.k >= 3 ? ' PI: ' + _pct(dtaData.sensPredInt[0]) + ' to ' + _pct(dtaData.sensPredInt[1]) + '.' : '') + '</span>';
       } else if (query.includes('specificity') || query.includes('spec')) {
         const interp = _specInterp(dtaData.spec);
         response = '<strong>Pooled Specificity</strong><br>' +
@@ -19489,7 +19529,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
            interp === 'good' ? '80\u201390% — most healthy individuals are correctly ruled out' :
            interp === 'fair' ? '70\u201380% — a notable proportion may receive false-positive results' :
            '<70% — many healthy individuals may be falsely classified as positive') + ').<br>' +
-          '<span style="font-size:0.78rem;color:var(--text-muted)">Based on ' + dtaData.k + ' studies. I\u00B2<sub>Spec</sub> = ' + dtaData.I2_spec.toFixed(1) + '%.</span>';
+          '<span style="font-size:0.78rem;color:var(--text-muted)">Based on ' + dtaData.k + ' studies. I\u00B2<sub>Spec</sub> = ' + dtaData.I2_spec.toFixed(1) + '%' + (dtaData.I2_spec_CI ? ' (' + dtaData.I2_spec_CI[0].toFixed(0) + ' to ' + dtaData.I2_spec_CI[1].toFixed(0) + '%)' : '') + '.' +
+          (dtaData.specPredInt && dtaData.k >= 3 ? ' PI: ' + _pct(dtaData.specPredInt[0]) + ' to ' + _pct(dtaData.specPredInt[1]) + '.' : '') + '</span>';
       } else if (query.includes('threshold') || query.includes('roc curve') || query.includes('sroc')) {
         response = '<strong>Threshold Effect</strong><br>';
         if (dtaData.rho !== null) {
@@ -19601,8 +19642,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
         const _i2label = v => v < 25 ? 'low' : v < 50 ? 'moderate' : v < 75 ? 'substantial' : 'considerable';
         response = '<strong>Heterogeneity in DTA</strong><br>' +
           '<table style="font-size:0.84rem;border-collapse:collapse;margin:6px 0">' +
-          '<tr><td style="padding:3px 10px">I\u00B2 (Sensitivity):</td><td style="padding:3px 10px;font-weight:600">' + dtaData.I2_sens.toFixed(1) + '%</td><td style="padding:3px 10px;color:var(--text-muted)">' + _i2label(dtaData.I2_sens) + '</td></tr>' +
-          '<tr><td style="padding:3px 10px">I\u00B2 (Specificity):</td><td style="padding:3px 10px;font-weight:600">' + dtaData.I2_spec.toFixed(1) + '%</td><td style="padding:3px 10px;color:var(--text-muted)">' + _i2label(dtaData.I2_spec) + '</td></tr>' +
+          '<tr><td style="padding:3px 10px">I\u00B2 (Sensitivity):</td><td style="padding:3px 10px;font-weight:600">' + dtaData.I2_sens.toFixed(1) + '%' + (dtaData.I2_sens_CI ? ' (' + dtaData.I2_sens_CI[0].toFixed(0) + ' to ' + dtaData.I2_sens_CI[1].toFixed(0) + '%)' : '') + '</td><td style="padding:3px 10px;color:var(--text-muted)">' + _i2label(dtaData.I2_sens) + '</td></tr>' +
+          '<tr><td style="padding:3px 10px">I\u00B2 (Specificity):</td><td style="padding:3px 10px;font-weight:600">' + dtaData.I2_spec.toFixed(1) + '%' + (dtaData.I2_spec_CI ? ' (' + dtaData.I2_spec_CI[0].toFixed(0) + ' to ' + dtaData.I2_spec_CI[1].toFixed(0) + '%)' : '') + '</td><td style="padding:3px 10px;color:var(--text-muted)">' + _i2label(dtaData.I2_spec) + '</td></tr>' +
           '<tr><td style="padding:3px 10px">\u03C4\u00B2 (Sensitivity):</td><td style="padding:3px 10px;font-weight:600">' + dtaData.tau2_sens.toFixed(4) + '</td><td></td></tr>' +
           '<tr><td style="padding:3px 10px">\u03C4\u00B2 (Specificity):</td><td style="padding:3px 10px;font-weight:600">' + dtaData.tau2_spec.toFixed(4) + '</td><td></td></tr>' +
           '</table>';
