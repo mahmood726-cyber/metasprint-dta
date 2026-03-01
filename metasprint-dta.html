@@ -1473,12 +1473,15 @@ body.dark-mode .input-error { background: #451a1a !important; }
         <div id="forestSensContainer"></div>
         <h4 style="text-align:center;font-size:0.85rem;margin-bottom:4px">Specificity</h4>
         <div id="forestSpecContainer"></div>
+        <h4 style="text-align:center;font-size:0.85rem;margin:12px 0 4px">Coupled Forest Plot</h4>
+        <div id="coupledForestContainer"></div>
         <div id="funnelPlotContainer"></div>
       </div>
       <div id="analysisExport" style="margin-top:12px;display:none">
         <button class="btn-outline" onclick="exportPlotSVG('srocPlotContainer','sroc-plot.svg')">Export SROC SVG</button>
         <button class="btn-outline" onclick="exportPlotSVG('forestSensContainer','forest-sens.svg')">Export Sens Forest SVG</button>
         <button class="btn-outline" onclick="exportPlotSVG('forestSpecContainer','forest-spec.svg')">Export Spec Forest SVG</button>
+        <button class="btn-outline" onclick="exportPlotSVG('coupledForestContainer','coupled-forest.svg')">Export Coupled Forest SVG</button>
         <button class="btn-outline" onclick="exportPlotSVG('funnelPlotContainer','deeks-funnel.svg')">Export Deeks Funnel SVG</button>
         <button class="btn-outline" onclick="copyAnalysisSummary()">Copy Statistics</button>
       </div>
@@ -8607,6 +8610,107 @@ body.dark-mode .input-error { background: #451a1a !important; }
     return svg;
   }
 
+  // ============================================================
+  // COUPLED FOREST PLOT (Sensitivity + Specificity on shared axis)
+  // ============================================================
+  function renderCoupledForestPlot(result) {
+    if (!result || !result.studyData) return '<p>No data for coupled forest plot</p>';
+    const studies = result.studyData;
+    const k = studies.length;
+    const confLevel = result.confLevel ?? 0.95;
+    const alpha = 1 - confLevel;
+    const confPct = Math.round(confLevel * 100);
+
+    const rowH = 28, headerH = 45, footerH = 55, pad = 20;
+    const h = headerH + k * rowH + footerH + pad;
+    const totalW = 900;
+    const centerW = 120;
+    const panelW = (totalW - centerW) / 2;
+    const sensLeft = 0;
+    const centerLeft = panelW, centerRight = panelW + centerW;
+    const specLeft = centerRight;
+
+    const sensScale = v => sensLeft + 20 + v * (panelW - 40);
+    const specScale = v => specLeft + 20 + v * (panelW - 40);
+
+    let svg = '<svg viewBox="0 0 ' + totalW + ' ' + h + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Coupled sensitivity-specificity forest plot" style="max-width:900px;width:100%;font-family:var(--font)">';
+
+    // Header
+    svg += '<text x="' + (sensLeft + panelW / 2) + '" y="20" text-anchor="middle" font-size="12" font-weight="bold" fill="var(--text)">Sensitivity (' + confPct + '% CI)</text>';
+    svg += '<text x="' + (centerLeft + centerW / 2) + '" y="20" text-anchor="middle" font-size="11" font-weight="bold" fill="var(--text)">Study</text>';
+    svg += '<text x="' + (specLeft + panelW / 2) + '" y="20" text-anchor="middle" font-size="12" font-weight="bold" fill="var(--text)">Specificity (' + confPct + '% CI)</text>';
+
+    // Separator lines
+    svg += '<line x1="' + centerLeft + '" y1="0" x2="' + centerLeft + '" y2="' + h + '" stroke="var(--border)" stroke-width="0.5"/>';
+    svg += '<line x1="' + centerRight + '" y1="0" x2="' + centerRight + '" y2="' + h + '" stroke="var(--border)" stroke-width="0.5"/>';
+
+    // Study rows
+    studies.forEach((s, i) => {
+      const y = headerH + i * rowH + rowH / 2;
+
+      // Study label (center)
+      svg += '<text x="' + (centerLeft + centerW / 2) + '" y="' + (y + 4) + '" text-anchor="middle" font-size="10" fill="var(--text)">' + escapeHtml((s.authorYear || s.author || '').slice(0, 18)) + '</text>';
+
+      // Sensitivity (left panel)
+      const nSens = s.tp + s.fn;
+      const ciSens = nSens > 0 ? wilsonCI(s.tp, nSens, alpha) : [0, 1];
+      const cxSens = sensScale(s.sens);
+      const x1Sens = sensScale(Math.max(0, ciSens[0]));
+      const x2Sens = sensScale(Math.min(1, ciSens[1]));
+      const sizeSens = Math.max(3, Math.min(10, Math.sqrt(parseFloat(s.weightPctSens ?? 5)) * 2));
+      svg += '<line x1="' + x1Sens + '" y1="' + y + '" x2="' + x2Sens + '" y2="' + y + '" stroke="var(--primary)" stroke-width="1.5"/>';
+      svg += '<rect x="' + (cxSens - sizeSens / 2) + '" y="' + (y - sizeSens / 2) + '" width="' + sizeSens + '" height="' + sizeSens + '" fill="var(--primary)"/>';
+
+      // Specificity (right panel)
+      const nSpec = s.tn + s.fp;
+      const ciSpec = nSpec > 0 ? wilsonCI(s.tn, nSpec, alpha) : [0, 1];
+      const cxSpec = specScale(s.spec);
+      const x1Spec = specScale(Math.max(0, ciSpec[0]));
+      const x2Spec = specScale(Math.min(1, ciSpec[1]));
+      const sizeSpec = Math.max(3, Math.min(10, Math.sqrt(parseFloat(s.weightPctSpec ?? 5)) * 2));
+      svg += '<line x1="' + x1Spec + '" y1="' + y + '" x2="' + x2Spec + '" y2="' + y + '" stroke="var(--info)" stroke-width="1.5"/>';
+      svg += '<rect x="' + (cxSpec - sizeSpec / 2) + '" y="' + (y - sizeSpec / 2) + '" width="' + sizeSpec + '" height="' + sizeSpec + '" fill="var(--info)"/>';
+    });
+
+    // Pooled diamonds
+    const dy = headerH + k * rowH + 20;
+
+    // Sensitivity diamond
+    const dxSens = sensScale(result.pooledSens);
+    const dloSens = sensScale(Math.max(0, result.sensCI[0]));
+    const dhiSens = sensScale(Math.min(1, result.sensCI[1]));
+    svg += '<polygon points="' + dloSens + ',' + dy + ' ' + dxSens + ',' + (dy - 8) + ' ' + dhiSens + ',' + dy + ' ' + dxSens + ',' + (dy + 8) + '" fill="var(--danger)" opacity="0.8"/>';
+
+    // Specificity diamond
+    const dxSpec = specScale(result.pooledSpec);
+    const dloSpec = specScale(Math.max(0, result.specCI[0]));
+    const dhiSpec = specScale(Math.min(1, result.specCI[1]));
+    svg += '<polygon points="' + dloSpec + ',' + dy + ' ' + dxSpec + ',' + (dy - 8) + ' ' + dhiSpec + ',' + dy + ' ' + dxSpec + ',' + (dy + 8) + '" fill="var(--danger)" opacity="0.8"/>';
+
+    // Pooled label
+    svg += '<text x="' + (centerLeft + centerW / 2) + '" y="' + (dy + 4) + '" text-anchor="middle" font-size="10" font-weight="bold" fill="var(--text)">Pooled</text>';
+
+    // X-axes
+    const axisY = headerH + k * rowH + 42;
+    // Sensitivity axis
+    svg += '<line x1="' + sensScale(0) + '" y1="' + axisY + '" x2="' + sensScale(1) + '" y2="' + axisY + '" stroke="var(--text)" stroke-width="1"/>';
+    [0, 0.25, 0.5, 0.75, 1].forEach(v => {
+      const tx = sensScale(v);
+      svg += '<line x1="' + tx + '" y1="' + axisY + '" x2="' + tx + '" y2="' + (axisY + 5) + '" stroke="var(--text)"/>';
+      svg += '<text x="' + tx + '" y="' + (axisY + 15) + '" text-anchor="middle" font-size="9" fill="var(--text-muted)">' + (v * 100) + '%</text>';
+    });
+    // Specificity axis
+    svg += '<line x1="' + specScale(0) + '" y1="' + axisY + '" x2="' + specScale(1) + '" y2="' + axisY + '" stroke="var(--text)" stroke-width="1"/>';
+    [0, 0.25, 0.5, 0.75, 1].forEach(v => {
+      const tx = specScale(v);
+      svg += '<line x1="' + tx + '" y1="' + axisY + '" x2="' + tx + '" y2="' + (axisY + 5) + '" stroke="var(--text)"/>';
+      svg += '<text x="' + tx + '" y="' + (axisY + 15) + '" text-anchor="middle" font-size="9" fill="var(--text-muted)">' + (v * 100) + '%</text>';
+    });
+
+    svg += '</svg>';
+    return svg;
+  }
+
   // Legacy aliases
   function renderForestPlot(result) { return renderDTAForestPlot(result, 'sens'); }
 
@@ -8824,6 +8928,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
     if (forestSensEl) forestSensEl.innerHTML = renderDTAForestPlot(result, 'sens');
     const forestSpecEl = document.getElementById('forestSpecContainer');
     if (forestSpecEl) forestSpecEl.innerHTML = renderDTAForestPlot(result, 'spec');
+    const coupledEl = document.getElementById('coupledForestContainer');
+    if (coupledEl) coupledEl.innerHTML = renderCoupledForestPlot(result);
     document.getElementById('analysisExport').style.display = 'block';
 
     // Deeks' funnel
