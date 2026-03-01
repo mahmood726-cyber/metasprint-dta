@@ -6712,7 +6712,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const svg = document.querySelector('#prismaFlow svg');
     if (!svg) { showToast('No PRISMA diagram to export', 'warning'); return; }
     const serializer = new XMLSerializer();
-    const svgStr = serializer.serializeToString(svg);
+    const svgStr = resolveCSSVarsInSVG(serializer.serializeToString(svg));
     downloadFile(svgStr, 'prisma-flow.svg', 'image/svg+xml');
   }
 
@@ -17264,6 +17264,20 @@ body.dark-mode .input-error { background: #451a1a !important; }
     }
   }
 
+  // --- CSS Variable Resolution for SVG Export ---
+  function resolveCSSVarsInSVG(svgString) {
+    const style = getComputedStyle(document.documentElement);
+    const vars = ['primary','primary-hover','success','warning','danger','info','bg','surface','text','text-muted','border','radius'];
+    let resolved = svgString;
+    vars.forEach(v => {
+      const val = style.getPropertyValue('--' + v).trim();
+      if (val) {
+        resolved = resolved.split('var(--' + v + ')').join(val);
+      }
+    });
+    return resolved;
+  }
+
   // --- Plot Export ---
   function exportPlotSVG(containerId, filename) {
     const container = document.getElementById(containerId);
@@ -17271,7 +17285,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const svg = container.querySelector('svg');
     if (!svg) { showToast('No plot to export', 'warning'); return; }
     const serializer = new XMLSerializer();
-    const svgStr = serializer.serializeToString(svg);
+    const svgStr = resolveCSSVarsInSVG(serializer.serializeToString(svg));
     downloadFile(svgStr, filename, 'image/svg+xml');
     showToast('Plot exported', 'success');
   }
