@@ -1469,6 +1469,15 @@ body.dark-mode .input-error { background: #451a1a !important; }
       <div class="analysis-summary" id="analysisSummary"></div>
       <div class="analysis-plots">
         <div id="srocPlotContainer"></div>
+        <div id="srocInterpretation" style="font-size:0.82rem;color:var(--text-muted);margin-top:8px;max-width:520px;display:none;line-height:1.5">
+          <strong>Reading this plot:</strong> Each circle is a study, plotted at its sensitivity (y-axis)
+          vs. false positive rate (x-axis). Studies in the top-left corner perform best.
+          The <span style="color:var(--danger)">red diamond</span> is the pooled summary point.
+          The <span style="color:var(--danger)">dashed curve</span> shows how sensitivity and specificity
+          trade off across different thresholds.
+          <span id="srocInterpConf" style="display:none"> The inner ellipse is the 95% confidence region for the summary point.</span>
+          <span id="srocInterpPred" style="display:none"> The outer ellipse is the 95% prediction region showing where a future study's result might fall.</span>
+        </div>
         <h4 style="text-align:center;font-size:0.85rem;margin-bottom:4px">Sensitivity</h4>
         <div id="forestSensContainer"></div>
         <h4 style="text-align:center;font-size:0.85rem;margin-bottom:4px">Specificity</h4>
@@ -8847,6 +8856,36 @@ body.dark-mode .input-error { background: #451a1a !important; }
   // ============================================================
   let lastAnalysisResult = null;
 
+  // SROC toggle change listeners — re-render plot + update interpretation text
+  function _updateSrocInterpSpans() {
+    const confSpan = document.getElementById('srocInterpConf');
+    const predSpan = document.getElementById('srocInterpPred');
+    const confToggle = document.getElementById('showConfRegionToggle');
+    const predToggle = document.getElementById('showPredRegionToggle');
+    if (confSpan) confSpan.style.display = confToggle?.checked ? 'inline' : 'none';
+    if (predSpan) predSpan.style.display = predToggle?.checked ? 'inline' : 'none';
+  }
+  function _rerenderSrocFromCache() {
+    if (!lastAnalysisResult) return;
+    const confLevel = lastAnalysisResult.confLevel ?? 0.95;
+    const srocEl = document.getElementById('srocPlotContainer');
+    if (srocEl) srocEl.innerHTML = renderSROCPlot(lastAnalysisResult, confLevel);
+    _updateSrocInterpSpans();
+  }
+  document.getElementById('showConfRegionToggle')?.addEventListener('change', _rerenderSrocFromCache);
+  document.getElementById('showPredRegionToggle')?.addEventListener('change', _rerenderSrocFromCache);
+  document.getElementById('showSROCToggle')?.addEventListener('change', function() {
+    const srocEl = document.getElementById('srocPlotContainer');
+    const srocInterp = document.getElementById('srocInterpretation');
+    if (this.checked) {
+      _rerenderSrocFromCache();
+      if (srocInterp && lastAnalysisResult) srocInterp.style.display = 'block';
+    } else {
+      if (srocEl) srocEl.innerHTML = '';
+      if (srocInterp) srocInterp.style.display = 'none';
+    }
+  });
+
   async function runAnalysis() {
     try {
     await loadStudies();
@@ -8924,6 +8963,17 @@ body.dark-mode .input-error { background: #451a1a !important; }
     // Render plots
     const srocEl = document.getElementById('srocPlotContainer');
     if (srocEl) srocEl.innerHTML = renderSROCPlot(result, confLevel);
+    // SROC interpretation text
+    const srocInterp = document.getElementById('srocInterpretation');
+    if (srocInterp) {
+      srocInterp.style.display = 'block';
+      const confToggle = document.getElementById('showConfRegionToggle');
+      const predToggle = document.getElementById('showPredRegionToggle');
+      const confSpan = document.getElementById('srocInterpConf');
+      const predSpan = document.getElementById('srocInterpPred');
+      if (confSpan) confSpan.style.display = confToggle?.checked ? 'inline' : 'none';
+      if (predSpan) predSpan.style.display = predToggle?.checked ? 'inline' : 'none';
+    }
     const forestSensEl = document.getElementById('forestSensContainer');
     if (forestSensEl) forestSensEl.innerHTML = renderDTAForestPlot(result, 'sens');
     const forestSpecEl = document.getElementById('forestSpecContainer');
@@ -9065,6 +9115,19 @@ body.dark-mode .input-error { background: #451a1a !important; }
           sofHtml += '<p style="font-size:0.72rem;color:var(--text-muted);margin-top:4px">GRADE certainty: ' + escapeHtml(grade.label) + '. TP=correctly identified; FP=incorrectly identified; FN=missed; TN=correctly excluded.</p>';
           gradeContainer.innerHTML += sofHtml;
         }
+      }
+    }
+
+    // DTA Subgroup Analysis (bivariate model per subgroup)
+    const subgroupEl = document.getElementById('subgroupContainer');
+    if (subgroupEl) {
+      const sgResult = computeDTASubgroupAnalysis(result.studyData, confLevel);
+      if (sgResult) {
+        subgroupEl.innerHTML = renderDTASubgroupResults(sgResult, confLevel);
+        subgroupEl.style.display = 'block';
+      } else {
+        subgroupEl.innerHTML = '';
+        subgroupEl.style.display = 'none';
       }
     }
 
@@ -10211,6 +10274,107 @@ body.dark-mode .input-error { background: #451a1a !important; }
     };
   }
 
+  // ============================================================
+  // DTA-SPECIFIC SUBGROUP ANALYSIS (Bivariate Model)
+  // ============================================================
+  // Runs improvedBivariatePool() per subgroup and tests for interaction
+  // using chi-squared on logDOR (appropriate for DTA meta-analysis).
+
+  function computeDTASubgroupAnalysis(studies, confLevel) {
+    confLevel = confLevel ?? 0.95;
+    // Group studies by subgroup label
+    var groups = {};
+    for (var s of studies) {
+      var label = (s.subgroup || '').trim();
+      if (!label) continue;
+      if (!groups[label]) groups[label] = [];
+      groups[label].push(s);
+    }
+    var labels = Object.keys(groups);
+    if (labels.length < 2) return null;
+
+    // Run bivariate pool per subgroup
+    var subResults = [];
+    for (var lbl of labels) {
+      if (groups[lbl].length < 2) continue; // Need k>=2 for bivariate
+      var r = improvedBivariatePool(groups[lbl], confLevel);
+      if (!r) continue;
+      subResults.push({ label: lbl, result: r, k: groups[lbl].length });
+    }
+    if (subResults.length < 2) return null;
+
+    // Test for subgroup differences on logDOR
+    // Q_between = sum(w_j * (logDOR_j - logDOR_overall)^2)
+    var z = normalQuantile(1 - (1 - confLevel) / 2);
+    var subWeights = subResults.map(function(sr) {
+      var logDOR = Math.log(Math.max(0.001, sr.result.dor));
+      // Approximate SE of logDOR from DOR CI
+      var logDORlo = Math.log(Math.max(0.001, sr.result.dorCI != null ? sr.result.dorCI[0] : sr.result.dor * 0.5));
+      var logDORhi = Math.log(Math.max(0.001, sr.result.dorCI != null ? sr.result.dorCI[1] : sr.result.dor * 2));
+      var seLogDOR = z > 0 ? (logDORhi - logDORlo) / (2 * z) : 0;
+      var w = seLogDOR > 0 ? 1 / (seLogDOR * seLogDOR) : 0;
+      return { logDOR: logDOR, w: w, seLogDOR: seLogDOR };
+    });
+    var sumW = subWeights.reduce(function(a, x) { return a + x.w; }, 0);
+    if (sumW <= 0) return null;
+    var logDORoverall = subWeights.reduce(function(a, x) { return a + x.w * x.logDOR; }, 0) / sumW;
+    var Qbetween = subWeights.reduce(function(a, x) {
+      return a + x.w * (x.logDOR - logDORoverall) * (x.logDOR - logDORoverall);
+    }, 0);
+    var dfBetween = subResults.length - 1;
+    var pInteraction = dfBetween > 0 ? 1 - chi2CDF(Qbetween, dfBetween) : 1;
+
+    return {
+      subgroups: subResults,
+      Qbetween: Qbetween,
+      dfBetween: dfBetween,
+      pInteraction: pInteraction
+    };
+  }
+
+  function renderDTASubgroupResults(sgResult, confLevel) {
+    var confPct = Math.round((confLevel ?? 0.95) * 100);
+    var html = '<h3 style="font-size:0.95rem;margin-bottom:8px">DTA Subgroup Analysis (Bivariate Model)</h3>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:0.82rem">';
+    html += '<thead><tr style="border-bottom:2px solid var(--border)">';
+    html += '<th style="text-align:left;padding:6px">Subgroup</th>';
+    html += '<th style="text-align:center;padding:6px">k</th>';
+    html += '<th style="text-align:center;padding:6px">Sens (' + confPct + '% CI)</th>';
+    html += '<th style="text-align:center;padding:6px">Spec (' + confPct + '% CI)</th>';
+    html += '<th style="text-align:center;padding:6px">DOR (' + confPct + '% CI)</th>';
+    html += '<th style="text-align:center;padding:6px">I\u00B2 Sens</th>';
+    html += '<th style="text-align:center;padding:6px">I\u00B2 Spec</th>';
+    html += '</tr></thead><tbody>';
+
+    sgResult.subgroups.forEach(function(sg) {
+      var r = sg.result;
+      var i2s = r.heterogeneity != null ? r.heterogeneity.I2_sens : (r.I2_sens != null ? r.I2_sens : null);
+      var i2p = r.heterogeneity != null ? r.heterogeneity.I2_spec : (r.I2_spec != null ? r.I2_spec : null);
+      html += '<tr style="border-bottom:1px solid var(--border)">';
+      html += '<td style="padding:6px;font-weight:600">' + escapeHtml(sg.label) + '</td>';
+      html += '<td style="text-align:center;padding:6px">' + sg.k + '</td>';
+      html += '<td style="text-align:center;padding:6px">' + (r.pooledSens * 100).toFixed(1) + '% [' + (r.sensCI[0] * 100).toFixed(1) + ', ' + (r.sensCI[1] * 100).toFixed(1) + ']</td>';
+      html += '<td style="text-align:center;padding:6px">' + (r.pooledSpec * 100).toFixed(1) + '% [' + (r.specCI[0] * 100).toFixed(1) + ', ' + (r.specCI[1] * 100).toFixed(1) + ']</td>';
+      html += '<td style="text-align:center;padding:6px">' + r.dor.toFixed(2) + ' [' + (r.dorCI != null ? r.dorCI[0].toFixed(2) : '?') + ', ' + (r.dorCI != null ? r.dorCI[1].toFixed(2) : '?') + ']</td>';
+      html += '<td style="text-align:center;padding:6px">' + (i2s != null ? i2s.toFixed(1) + '%' : 'N/A') + '</td>';
+      html += '<td style="text-align:center;padding:6px">' + (i2p != null ? i2p.toFixed(1) + '%' : 'N/A') + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+
+    // Q_between test result
+    html += '<p style="font-size:0.82rem;margin-top:8px;color:var(--text-muted)">';
+    html += '<strong>Test for subgroup differences:</strong> Q<sub>between</sub> = ' + sgResult.Qbetween.toFixed(2);
+    html += ', df = ' + sgResult.dfBetween;
+    html += ', p = ' + (sgResult.pInteraction < 0.001 ? '< 0.001' : sgResult.pInteraction.toFixed(3));
+    if (sgResult.pInteraction < 0.05) {
+      html += ' <span style="color:var(--danger);font-weight:600">(significant subgroup difference)</span>';
+    } else {
+      html += ' (no significant subgroup difference)';
+    }
+    html += '</p>';
+    return html;
+  }
 
   // ============================================================
   // CUMULATIVE META-ANALYSIS
