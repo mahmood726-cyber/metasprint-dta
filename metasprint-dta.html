@@ -1507,6 +1507,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
       <div id="metaRegressionContainer" style="margin-top:20px"></div>
       <div id="heterogeneityContainer" style="margin-top:20px"></div>
       <div id="robSensitivityContainer" style="margin-top:20px"></div>
+      <div id="sofTableContainer" style="margin-top:20px"></div>
 
       <!-- ========== ADVANCED DTA FEATURES (ported from DTA Pro) ========== -->
       <div id="advancedDTASection" style="margin-top:24px;display:none">
@@ -8197,6 +8198,180 @@ body.dark-mode .input-error { background: #451a1a !important; }
     return { certainty, label: labels[certainty], color: colors[certainty], domains };
   }
 
+  // --- GRADE-DTA Summary of Findings (SoF) Table ---
+  // Computes TP/FP/FN/TN per 1000 tested at a given prevalence with CIs and GRADE certainty
+  function renderSoFTable(result, prevalence) {
+    if (!result || result.pooledSens == null || result.pooledSpec == null) return '';
+    prevalence = (isFinite(prevalence) && prevalence > 0 && prevalence < 1) ? prevalence : 0.20;
+    var sens = result.pooledSens;
+    var spec = result.pooledSpec;
+    var sensCI = result.sensCI ?? [sens, sens];
+    var specCI = result.specCI ?? [spec, spec];
+    var sensLo = sensCI[0] ?? sens;
+    var sensHi = sensCI[1] ?? sens;
+    var specLo = specCI[0] ?? spec;
+    var specHi = specCI[1] ?? spec;
+
+    var diseased = prevalence * 1000;
+    var healthy = 1000 - diseased;
+
+    // Point estimates
+    var tp = Math.round(diseased * sens);
+    var fn = Math.round(diseased * (1 - sens));
+    var tn = Math.round(healthy * spec);
+    var fp = Math.round(healthy * (1 - spec));
+
+    // CI ranges for TP (higher sens = more TP)
+    var tpLo = Math.round(diseased * sensLo);
+    var tpHi = Math.round(diseased * sensHi);
+    // CI ranges for FN (higher sens = fewer FN)
+    var fnLo = Math.round(diseased * (1 - sensHi));
+    var fnHi = Math.round(diseased * (1 - sensLo));
+    // CI ranges for TN (higher spec = more TN)
+    var tnLo = Math.round(healthy * specLo);
+    var tnHi = Math.round(healthy * specHi);
+    // CI ranges for FP (higher spec = fewer FP)
+    var fpLo = Math.round(healthy * (1 - specHi));
+    var fpHi = Math.round(healthy * (1 - specLo));
+
+    // GRADE certainty
+    var grade = computeGRADE(result, result.studyData);
+    var certaintyLabel = grade ? grade.label : 'Not assessed';
+    var certaintySymbol = '+ooo';
+    if (grade) {
+      var symMap = { 4: '++++', 3: '+++o', 2: '++oo', 1: '+ooo' };
+      certaintySymbol = symMap[grade.certainty] ?? '+ooo';
+    }
+    var certaintyColor = grade ? grade.color : 'var(--text-muted)';
+
+    // Participants and studies
+    var k = result.k ?? 0;
+    var totalN = 0;
+    if (result.studyData && result.studyData.length > 0) {
+      totalN = result.studyData.reduce(function(sum, s) { return sum + (s.n ?? 0); }, 0);
+    }
+    var partLabel = totalN + ' (' + k + ' ' + (k === 1 ? 'study' : 'studies') + ')';
+
+    var confLevel = result.confLevel ?? 0.95;
+    var confPct = Math.round(confLevel * 100);
+
+    var html = '<table style="width:100%;font-size:0.82rem;border-collapse:collapse;margin-top:4px">';
+    html += '<thead><tr style="border-bottom:2px solid var(--border);background:var(--surface)">';
+    html += '<th style="text-align:left;padding:6px 8px">Outcome</th>';
+    html += '<th style="text-align:center;padding:6px 8px">Effect per 1,000 (' + confPct + '% CI)</th>';
+    html += '<th style="text-align:center;padding:6px 8px">Participants (studies)</th>';
+    html += '<th style="text-align:center;padding:6px 8px">Certainty</th>';
+    html += '<th style="text-align:left;padding:6px 8px">What happens</th>';
+    html += '</tr></thead><tbody>';
+
+    var rows = [
+      { label: 'True positives (correctly identified)', val: tp, lo: tpLo, hi: tpHi,
+        color: 'var(--success)', explain: 'These patients will be correctly diagnosed and receive appropriate treatment.' },
+      { label: 'False negatives (missed)', val: fn, lo: fnLo, hi: fnHi,
+        color: 'var(--danger)', explain: 'These patients will be missed. Disease may progress without treatment.' },
+      { label: 'True negatives (correctly excluded)', val: tn, lo: tnLo, hi: tnHi,
+        color: 'var(--success)', explain: 'These patients will be correctly reassured they do not have the condition.' },
+      { label: 'False positives (false alarms)', val: fp, lo: fpLo, hi: fpHi,
+        color: 'var(--warning)', explain: 'These patients will undergo unnecessary further work-up or treatment.' }
+    ];
+
+    rows.forEach(function(row) {
+      html += '<tr style="border-bottom:1px solid var(--border)">';
+      html += '<td style="padding:6px 8px;font-weight:600">' + escapeHtml(row.label) + '</td>';
+      html += '<td style="text-align:center;padding:6px 8px;color:' + row.color + ';font-weight:600">' +
+        row.val + ' <span style="font-weight:400;font-size:0.78rem">(' + row.lo + ' to ' + row.hi + ')</span></td>';
+      html += '<td style="text-align:center;padding:6px 8px">' + escapeHtml(partLabel) + '</td>';
+      html += '<td style="text-align:center;padding:6px 8px"><span style="font-family:monospace;font-weight:700;color:' +
+        certaintyColor + '" title="' + escapeHtml(certaintyLabel) + '">' + certaintySymbol + '</span><br>' +
+        '<span style="font-size:0.72rem;color:var(--text-muted)">' + escapeHtml(certaintyLabel) + '</span></td>';
+      html += '<td style="padding:6px 8px;font-size:0.78rem;color:var(--text-muted)">' + escapeHtml(row.explain) + '</td>';
+      html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+    html += '<p style="font-size:0.72rem;color:var(--text-muted);margin-top:6px;line-height:1.4">' +
+      'Prevalence: ' + (prevalence * 100).toFixed(0) + '%. ' +
+      'Pooled sensitivity: ' + (sens * 100).toFixed(1) + '% (' + confPct + '% CI: ' + (sensLo * 100).toFixed(1) + ' to ' + (sensHi * 100).toFixed(1) + '). ' +
+      'Pooled specificity: ' + (spec * 100).toFixed(1) + '% (' + confPct + '% CI: ' + (specLo * 100).toFixed(1) + ' to ' + (specHi * 100).toFixed(1) + '). ' +
+      'GRADE-DTA certainty: ' + escapeHtml(certaintyLabel) + '. ' +
+      'Estimates computed using the Cochrane GRADE-DTA framework.</p>';
+    return html;
+  }
+
+  // Update SoF table when prevalence changes (called from input onchange)
+  function updateSoFTable() {
+    var el = document.getElementById('sofTableContainer');
+    if (!el || !lastAnalysisResult) return;
+    var prevInput = document.getElementById('sofPrevalenceInput');
+    var prev = parseFloat(prevInput?.value ?? 20) / 100;
+    if (!isFinite(prev) || prev <= 0 || prev >= 1) prev = 0.20;
+    var tableEl = el.querySelector('table');
+    var footerEl = el.querySelector('p');
+    if (tableEl) {
+      // Replace table and footer with updated values
+      var newContent = renderSoFTable(lastAnalysisResult, prev);
+      // Extract table from the rendered HTML (keep header and controls)
+      var tempDiv = document.createElement('div');
+      tempDiv.innerHTML = newContent;
+      var newTable = tempDiv.querySelector('table');
+      var newFooter = tempDiv.querySelector('p');
+      if (newTable && tableEl) tableEl.outerHTML = newTable.outerHTML;
+      // Update footer too
+      var currentFooter = el.querySelector('p');
+      if (newFooter && currentFooter) currentFooter.outerHTML = newFooter.outerHTML;
+    }
+  }
+
+  // Export SoF data as CSV
+  function exportSoFCSV() {
+    if (!lastAnalysisResult) { showToast('Run analysis first', 'warning'); return; }
+    var prevInput = document.getElementById('sofPrevalenceInput');
+    var prevalence = parseFloat(prevInput?.value ?? 20) / 100;
+    if (!isFinite(prevalence) || prevalence <= 0 || prevalence >= 1) prevalence = 0.20;
+    var result = lastAnalysisResult;
+    var sens = result.pooledSens;
+    var spec = result.pooledSpec;
+    var sensCI = result.sensCI ?? [sens, sens];
+    var specCI = result.specCI ?? [spec, spec];
+    var sensLo = sensCI[0] ?? sens;
+    var sensHi = sensCI[1] ?? sens;
+    var specLo = specCI[0] ?? spec;
+    var specHi = specCI[1] ?? spec;
+
+    var diseased = prevalence * 1000;
+    var healthy = 1000 - diseased;
+
+    var k = result.k ?? 0;
+    var totalN = 0;
+    if (result.studyData && result.studyData.length > 0) {
+      totalN = result.studyData.reduce(function(sum, s) { return sum + (s.n ?? 0); }, 0);
+    }
+
+    var grade = computeGRADE(result, result.studyData);
+    var certaintyLabel = grade ? grade.label : 'Not assessed';
+
+    var rows = [
+      { name: 'True Positives', val: Math.round(diseased * sens),
+        lo: Math.round(diseased * sensLo), hi: Math.round(diseased * sensHi) },
+      { name: 'False Negatives', val: Math.round(diseased * (1 - sens)),
+        lo: Math.round(diseased * (1 - sensHi)), hi: Math.round(diseased * (1 - sensLo)) },
+      { name: 'True Negatives', val: Math.round(healthy * spec),
+        lo: Math.round(healthy * specLo), hi: Math.round(healthy * specHi) },
+      { name: 'False Positives', val: Math.round(healthy * (1 - spec)),
+        lo: Math.round(healthy * (1 - specHi)), hi: Math.round(healthy * (1 - specLo)) }
+    ];
+
+    var csv = 'Outcome,Effect per 1000,CI Lower,CI Upper,Participants,Studies,Certainty,Prevalence\n';
+    rows.forEach(function(row) {
+      csv += csvSafeCell(row.name) + ',' + row.val + ',' + row.lo + ',' + row.hi + ',' +
+        totalN + ',' + k + ',' + csvSafeCell(certaintyLabel) + ',' +
+        csvSafeCell((prevalence * 100).toFixed(0) + '%') + '\n';
+    });
+
+    downloadFile(csv, 'sof_table_dta.csv', 'text/csv');
+    showToast('Summary of Findings CSV exported', 'success');
+  }
+
   // --- NND (Number Needed to Diagnose) from DTA pooled results ---
   // Legacy alias: computeNNT redirects to DTA NND calculation
   // NND = 1 / Youden's J = 1 / (Sensitivity + Specificity - 1)
@@ -9242,33 +9417,15 @@ body.dark-mode .input-error { background: #451a1a !important; }
         }
         gradeHtml += '</table>';
         gradeContainer.innerHTML = gradeHtml;
-
-        // Summary of Findings (SoF) table
-        if (result.pooledSens !== undefined && result.pooledSpec !== undefined) {
-          const sofSens = result.pooledSens ?? result.sens ?? 0;
-          const sofSpec = result.pooledSpec ?? result.spec ?? 0;
-          const prevalences = [0.05, 0.10, 0.20, 0.50];
-          let sofHtml = '<h4 style="margin-top:16px;margin-bottom:8px">Summary of Findings (per 1,000 tested)</h4>';
-          sofHtml += '<table style="width:100%;font-size:0.8rem;border-collapse:collapse"><thead><tr style="border-bottom:2px solid var(--border)">';
-          sofHtml += '<th style="text-align:left;padding:2px 6px">Prevalence</th><th>TP</th><th>FP</th><th>FN</th><th>TN</th></tr></thead><tbody>';
-          prevalences.forEach(prev => {
-            const diseased = Math.round(prev * 1000);
-            const healthy = 1000 - diseased;
-            const tp = Math.round(diseased * sofSens);
-            const fn = diseased - tp;
-            const tn = Math.round(healthy * sofSpec);
-            const fp = healthy - tn;
-            sofHtml += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:2px 6px">' + (prev * 100) + '%</td>';
-            sofHtml += '<td style="text-align:center;color:var(--success)">' + tp + '</td>';
-            sofHtml += '<td style="text-align:center;color:var(--danger)">' + fp + '</td>';
-            sofHtml += '<td style="text-align:center;color:var(--danger)">' + fn + '</td>';
-            sofHtml += '<td style="text-align:center;color:var(--success)">' + tn + '</td></tr>';
-          });
-          sofHtml += '</tbody></table>';
-          sofHtml += '<p style="font-size:0.72rem;color:var(--text-muted);margin-top:4px">GRADE certainty: ' + escapeHtml(grade.label) + '. TP=correctly identified; FP=incorrectly identified; FN=missed; TN=correctly excluded.</p>';
-          gradeContainer.innerHTML += sofHtml;
-        }
       }
+    }
+
+    // GRADE-DTA Summary of Findings table (dedicated container with configurable prevalence + CSV export)
+    var sofEl = document.getElementById('sofTableContainer');
+    if (sofEl && result && result.pooledSens != null && result.pooledSpec != null) {
+      var prevInput = '<div style="margin-bottom:8px"><label style="font-size:0.82rem">Prevalence: <input type="number" id="sofPrevalenceInput" value="20" min="1" max="99" step="1" style="width:60px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;font-size:0.82rem" onchange="updateSoFTable()">%</label>';
+      prevInput += ' <button class="btn-outline" onclick="exportSoFCSV()" style="font-size:0.78rem;padding:2px 8px">Export CSV</button></div>';
+      sofEl.innerHTML = '<h4 style="margin-bottom:8px">Summary of Findings (GRADE-DTA)</h4>' + prevInput + renderSoFTable(result, 0.20);
     }
 
     // DTA Subgroup Analysis (bivariate model per subgroup)
