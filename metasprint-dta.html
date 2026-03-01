@@ -1366,6 +1366,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
         <button onclick="autoPopulateFromIncluded()">Import from Screening</button>
         <button class="btn-outline" onclick="exportStudiesCSV()">Export CSV</button>
         <button class="btn-outline" onclick="importStudiesCSV()">Import CSV</button>
+        <button class="btn-outline" onclick="importRevManXML()">Import RevMan</button>
         <button class="btn-info" onclick="loadDemoData()">Load Demo Data</button>
         <select id="benchmarkDatasetSelect" onchange="loadBenchmarkDataset(this.value)" style="padding:4px 8px;font-size:0.82rem;border:1px solid var(--border);border-radius:var(--radius)">
           <option value="">Load Benchmark Dataset...</option>
@@ -1436,7 +1437,9 @@ body.dark-mode .input-error { background: #451a1a !important; }
             <button class="btn-warning" onclick="applyProvisionalRoBAssessments()" title="Sets all QUADAS-2 domains to 'Unclear' as starting point. Review and adjust each domain based on your full-text assessment.">Auto-Fill Provisional QUADAS-2</button>
             <button class="btn-outline" onclick="clearRoBAssessments()">Clear QUADAS-2</button>
             <button class="btn-outline" onclick="exportRoBSummary()">Copy QUADAS-2 Summary</button>
+            <button class="btn-outline" onclick="exportQUADAS2CSV()">Export QUADAS-2 CSV</button>
           </div>
+          <div id="quadas2BarChartContainer" style="margin-top:14px"></div>
         </div>
       </div>
     </section>
@@ -1488,11 +1491,22 @@ body.dark-mode .input-error { background: #451a1a !important; }
       </div>
       <div id="analysisExport" style="margin-top:12px;display:none">
         <button class="btn-outline" onclick="exportPlotSVG('srocPlotContainer','sroc-plot.svg')">Export SROC SVG</button>
+        <button class="btn-outline" onclick="exportPlotPNG('srocPlotContainer','sroc-plot.png')">SROC PNG</button>
         <button class="btn-outline" onclick="exportPlotSVG('forestSensContainer','forest-sens.svg')">Export Sens Forest SVG</button>
+        <button class="btn-outline" onclick="exportPlotPNG('forestSensContainer','forest-sensitivity.png')">Sens Forest PNG</button>
         <button class="btn-outline" onclick="exportPlotSVG('forestSpecContainer','forest-spec.svg')">Export Spec Forest SVG</button>
+        <button class="btn-outline" onclick="exportPlotPNG('forestSpecContainer','forest-specificity.png')">Spec Forest PNG</button>
         <button class="btn-outline" onclick="exportPlotSVG('coupledForestContainer','coupled-forest.svg')">Export Coupled Forest SVG</button>
+        <button class="btn-outline" onclick="exportPlotPNG('coupledForestContainer','coupled-forest.png')">Coupled Forest PNG</button>
         <button class="btn-outline" onclick="exportPlotSVG('funnelPlotContainer','deeks-funnel.svg')">Export Deeks Funnel SVG</button>
+        <button class="btn-outline" onclick="exportPlotPNG('funnelPlotContainer','deeks-funnel.png')">Funnel PNG</button>
         <button class="btn-outline" onclick="copyAnalysisSummary()">Copy Statistics</button>
+        <button class="btn-outline" onclick="exportCharacteristicsTable()">Table 1 CSV</button>
+        <button class="btn-outline" onclick="exportAccuracyTable()">Table 2 CSV</button>
+        <button class="btn-outline" onclick="exportPooledResultsCSV()">Pooled Results CSV</button>
+        <button class="btn-outline" onclick="exportQUADAS2CSV()">QUADAS-2 CSV</button>
+        <button class="btn-outline" onclick="exportGRADEProfile('html')">GRADE Profile HTML</button>
+        <button class="btn-outline" onclick="exportGRADEProfile('csv')">GRADE Profile CSV</button>
       </div>
       <div id="clinicalUtilityContainer" style="margin-top:20px"></div>
       <div id="looContainer" style="margin-top:20px"></div>
@@ -1564,6 +1578,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
       </div>
       <div id="truthCertWritebackStatus" style="font-size:0.8rem;color:var(--text-muted);margin-bottom:8px"></div>
       <button onclick="generatePaper()" style="margin:12px 0">Generate Draft</button>
+      <button class="btn-outline" onclick="togglePRISMADTAChecklist()" style="margin:12px 0 12px 8px">PRISMA-DTA Checklist</button>
+      <div id="prismaDTAChecklistPanel" style="display:none;margin-bottom:16px"></div>
       <div id="paperOutput"></div>
     </section>
 
@@ -3190,6 +3206,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     if (!visible) {
       syncRoBFromStudies();
       renderRoBSummaryTable();
+      updateQUADAS2BarChart();
       computeGRADERoBSuggestion();
     }
   }
@@ -3332,6 +3349,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     saveSprintState();
     openRoBEntry(studyId);
     renderRoBSummaryTable();
+    updateQUADAS2BarChart();
     computeGRADERoBSuggestion();
   }
 
@@ -3354,6 +3372,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     }
     saveSprintState();
     renderRoBSummaryTable();
+    updateQUADAS2BarChart();
   }
 
   function closeRoBEntry() {
@@ -3419,6 +3438,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     }
     saveSprintState();
     renderRoBSummaryTable();
+    updateQUADAS2BarChart();
     computeGRADERoBSuggestion();
     showToast('Provisional RoB filled for ' + updated + ' studies (review before submission)', 'success');
   }
@@ -3444,6 +3464,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     });
     saveSprintState();
     renderRoBSummaryTable();
+    updateQUADAS2BarChart();
     computeGRADERoBSuggestion();
     showToast('RoB assessments cleared', 'info');
   }
@@ -3540,7 +3561,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     if (phase === 'dashboard') renderSprintDashboard();
     if (phase === 'checkpoints') renderDoDPage();
     if (phase === 'screen') renderReferenceList();
-    if (phase === 'extract') loadStudies().then(() => { renderExtractTable(); syncRoBFromStudies(); renderRoBSummaryTable(); });
+    if (phase === 'extract') loadStudies().then(() => { renderExtractTable(); syncRoBFromStudies(); renderRoBSummaryTable(); updateQUADAS2BarChart(); });
     if (phase === 'analyze') loadStudies();
     if (phase === 'search') loadPICO();
     if (phase === 'write') refreshAdvancedJournalGate();
@@ -7087,6 +7108,101 @@ body.dark-mode .input-error { background: #451a1a !important; }
     downloadFile(header + '\n' + rows.join('\n'), 'dta-studies-export.csv', 'text/csv');
   }
 
+  // --- RevMan 5 XML (.rm5) Import ---
+  function importRevManXML() {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.rm5,.xml';
+    input.style.display = 'none';
+    input.addEventListener('change', function(e) {
+      var file = e.target.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function(ev) {
+        try {
+          var parser = new DOMParser();
+          var xmlDoc = parser.parseFromString(ev.target.result, 'application/xml');
+          var parseError = xmlDoc.querySelector('parsererror');
+          if (parseError) {
+            showToast('Invalid XML file: ' + parseError.textContent.substring(0, 100), 'danger');
+            return;
+          }
+          // Build study name lookup from <STUDY> elements
+          var studyNameMap = {};
+          var studyEls = xmlDoc.querySelectorAll('STUDY');
+          for (var si = 0; si < studyEls.length; si++) {
+            var studyEl = studyEls[si];
+            var studyName = studyEl.getAttribute('NAME') || studyEl.getAttribute('STUDY_ID') || '';
+            var studyId = studyEl.getAttribute('ID') || studyEl.getAttribute('STUDY_ID') || '';
+            if (studyId) studyNameMap[studyId] = studyName;
+            if (studyName) studyNameMap[studyName] = studyName;
+          }
+          // Find DICH_DATA elements (standard RevMan DTA format)
+          var dichEls = xmlDoc.querySelectorAll('DICH_DATA');
+          var count = 0;
+          for (var di = 0; di < dichEls.length; di++) {
+            var d = dichEls[di];
+            var tp = parseInt(d.getAttribute('EVENTS_1'));
+            var fn_val = parseInt(d.getAttribute('NOEVENTS_1'));
+            var fp = parseInt(d.getAttribute('EVENTS_2'));
+            var tn = parseInt(d.getAttribute('NOEVENTS_2'));
+            if (isNaN(tp) || isNaN(fn_val) || isNaN(fp) || isNaN(tn)) continue;
+            if (tp < 0 || fn_val < 0 || fp < 0 || tn < 0) continue;
+            // Try to find study name from parent element
+            var parentStudy = d.closest('STUDY');
+            var authorYear = '';
+            if (parentStudy) {
+              authorYear = parentStudy.getAttribute('NAME') || parentStudy.getAttribute('STUDY_ID') || '';
+            }
+            if (!authorYear) {
+              var studyIdAttr = d.getAttribute('STUDY_ID') || '';
+              authorYear = studyNameMap[studyIdAttr] || studyIdAttr || ('Study ' + (count + 1));
+            }
+            addStudyRow({
+              authorYear: authorYear,
+              tp: tp, fp: fp, fn: fn_val, tn: tn
+            });
+            count++;
+          }
+          // If no DICH_DATA found, try IV_DATA (some RevMan versions use this)
+          if (count === 0) {
+            var ivEls = xmlDoc.querySelectorAll('IV_DATA');
+            for (var ii = 0; ii < ivEls.length; ii++) {
+              var iv = ivEls[ii];
+              // IV_DATA may have different attribute names; try standard DTA mapping
+              var e1 = parseInt(iv.getAttribute('EVENTS_1') ?? iv.getAttribute('O1'));
+              var ne1 = parseInt(iv.getAttribute('NOEVENTS_1') ?? iv.getAttribute('N1'));
+              var e2 = parseInt(iv.getAttribute('EVENTS_2') ?? iv.getAttribute('O2'));
+              var ne2 = parseInt(iv.getAttribute('NOEVENTS_2') ?? iv.getAttribute('N2'));
+              if (isNaN(e1) || isNaN(ne1) || isNaN(e2) || isNaN(ne2)) continue;
+              if (e1 < 0 || ne1 < 0 || e2 < 0 || ne2 < 0) continue;
+              var parentIv = iv.closest('STUDY');
+              var nameIv = parentIv ? (parentIv.getAttribute('NAME') || '') : ('Study ' + (count + 1));
+              addStudyRow({
+                authorYear: nameIv,
+                tp: e1, fp: e2, fn: ne1, tn: ne2
+              });
+              count++;
+            }
+          }
+          if (count > 0) {
+            showToast('Imported ' + count + ' studies from RevMan XML', 'success');
+            renderExtractTable();
+          } else {
+            showToast('No DTA data found in file. Expected DICH_DATA elements with EVENTS_1/NOEVENTS_1/EVENTS_2/NOEVENTS_2 attributes.', 'warning');
+          }
+        } catch (err) {
+          showToast('Error parsing RevMan XML: ' + (err.message || err), 'danger');
+          console.error('RevMan import error:', err);
+        }
+      };
+      reader.readAsText(file);
+      input.remove();
+    });
+    document.body.appendChild(input);
+    input.click();
+  }
+
   // ============================================================
   // DTA META-ANALYSIS ENGINE (Bivariate GLMM / HSROC)
   // Ported from DTA Pro Review v4.9.2 (validated against R mada v0.5.12)
@@ -7520,6 +7636,54 @@ body.dark-mode .input-error { background: #451a1a !important; }
     return { I2, I2_lo, I2_hi };
   }
 
+  // --- Profile Likelihood CI (more accurate than Wald for small k or boundary estimates) ---
+  // Uses marginal normal log-likelihood with DL tau2; finds roots via bisection
+  // where -2*logLR = chi2(1, alpha). See Viechtbauer (2007), Hardy & Thompson (1996).
+  function profileLikelihoodCI(yi, vi, tau2, mu_hat, confLevel) {
+    var alpha = 1 - (confLevel ?? 0.95);
+    var chi2Crit = chi2Quantile(1 - alpha, 1); // 3.84 for 95%
+    var k = yi.length;
+    if (k < 2) return [mu_hat, mu_hat]; // degenerate
+
+    // Profile log-likelihood (normal marginal)
+    function logLik(mu) {
+      var ll = 0;
+      for (var i = 0; i < k; i++) {
+        var v = vi[i] + tau2;
+        if (v <= 0) v = 1e-8;
+        ll += -0.5 * ((yi[i] - mu) * (yi[i] - mu) / v + Math.log(v));
+      }
+      return ll;
+    }
+
+    var ll_max = logLik(mu_hat);
+    var target = ll_max - chi2Crit / 2; // -2*logLR = chi2 => logLR = -chi2/2
+
+    // Bisection for lower bound: find mu_lo < mu_hat where logLik(mu_lo) = target
+    var lo = mu_hat - 5;
+    var hi = mu_hat;
+    for (var iter = 0; iter < 100; iter++) {
+      var mid = (lo + hi) / 2;
+      if (logLik(mid) > target) lo = mid;
+      else hi = mid;
+      if (Math.abs(hi - lo) < 1e-6) break;
+    }
+    var ci_lo = (lo + hi) / 2;
+
+    // Bisection for upper bound: find mu_hi > mu_hat where logLik(mu_hi) = target
+    lo = mu_hat;
+    hi = mu_hat + 5;
+    for (var iter2 = 0; iter2 < 100; iter2++) {
+      var mid2 = (lo + hi) / 2;
+      if (logLik(mid2) > target) hi = mid2;
+      else lo = mid2;
+      if (Math.abs(hi - lo) < 1e-6) break;
+    }
+    var ci_hi = (lo + hi) / 2;
+
+    return [ci_lo, ci_hi];
+  }
+
   // --- Bivariate DL pooling (matches R mada::reitsma) ---
   function improvedBivariatePool(studies, confLevel) {
     confLevel = confLevel ?? 0.95;
@@ -7565,6 +7729,18 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const piCrit = n >= 3 ? tQuantile(1 - alpha / 2, Math.max(1, n - 2)) : critValue;
     const sensPredInt = [invLogit(mu1 - piCrit * Math.sqrt(tau2_1 + seMu1 * seMu1)), invLogit(mu1 + piCrit * Math.sqrt(tau2_1 + seMu1 * seMu1))];
     const specPredInt = [invLogit(mu2 - piCrit * Math.sqrt(tau2_2 + seMu2 * seMu2)), invLogit(mu2 + piCrit * Math.sqrt(tau2_2 + seMu2 * seMu2))];
+    // Profile likelihood CIs for small k (more accurate than Wald near boundaries)
+    var sensCI_profile = null, specCI_profile = null;
+    if (n < 10) {
+      var yi_sens = data.map(function(d) { return d.y1; });
+      var vi_sens = data.map(function(d) { return d.v1; });
+      var yi_spec = data.map(function(d) { return d.y2; });
+      var vi_spec = data.map(function(d) { return d.v2; });
+      var plCI_sens = profileLikelihoodCI(yi_sens, vi_sens, tau2_1, mu1, confLevel);
+      var plCI_spec = profileLikelihoodCI(yi_spec, vi_spec, tau2_2, mu2, confLevel);
+      sensCI_profile = [invLogit(plCI_sens[0]), invLogit(plCI_sens[1])];
+      specCI_profile = [invLogit(plCI_spec[0]), invLogit(plCI_spec[1])];
+    }
     return {
       pooledSens, pooledSpec,
       plr: sensLR / (1 - specLR), nlr: (1 - sensLR) / specLR,
@@ -7572,6 +7748,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
       sensCI: [invLogit(mu1 - critValue * seMu1), invLogit(mu1 + critValue * seMu1)],
       specCI: [invLogit(mu2 - critValue * seMu2), invLogit(mu2 + critValue * seMu2)],
       sensPredInt, specPredInt,
+      sensCI_profile, specCI_profile,
       dorCI: [Math.exp((mu1 + mu2) - critValue * Math.sqrt(seMu1 ** 2 + seMu2 ** 2 + 2 * rho * seMu1 * seMu2)),
               Math.exp((mu1 + mu2) + critValue * Math.sqrt(seMu1 ** 2 + seMu2 ** 2 + 2 * rho * seMu1 * seMu2))],
       mu1, mu2, seMu1, seMu2, covMu12: rho * seMu1 * seMu2,
@@ -7842,6 +8019,107 @@ body.dark-mode .input-error { background: #451a1a !important; }
     result.confLevel = confLevel;
     result.zeroCellStudies = prepared.filter(s => s.hasZero).length;
     return result;
+  }
+
+  // --- Comparative DTA: Side-by-side analysis of 2+ index tests ---
+  function computeComparativeDTA(studies, confLevel) {
+    confLevel = confLevel ?? 0.95;
+    var alpha = 1 - confLevel;
+    // Group by indexTest (skip empty/undefined)
+    var groups = {};
+    for (var i = 0; i < studies.length; i++) {
+      var s = studies[i];
+      var testName = (s.indexTest || '').trim();
+      if (!testName) continue;
+      if (!groups[testName]) groups[testName] = [];
+      groups[testName].push(s);
+    }
+    var testNames = Object.keys(groups);
+    if (testNames.length < 2) return null;
+    var ccMethod = document.getElementById('continuityCorrection')?.value ?? '0.5';
+    var testResults = [];
+    for (var ti = 0; ti < testNames.length; ti++) {
+      var name = testNames[ti];
+      var grp = groups[name];
+      if (grp.length < 2) continue;
+      var prepared = prepareDTAStudyData(grp, ccMethod);
+      if (prepared.length < 2) continue;
+      var pooled = improvedBivariatePool(prepared, confLevel);
+      if (!pooled) continue;
+      var logDOR = pooled.mu1 + pooled.mu2;
+      var seLogDOR = Math.sqrt(pooled.seMu1 * pooled.seMu1 + pooled.seMu2 * pooled.seMu2 + 2 * (pooled.covMu12 ?? 0));
+      testResults.push({
+        name: name, k: pooled.k, pooled: pooled,
+        sens: pooled.pooledSens, sensCI: pooled.sensCI,
+        spec: pooled.pooledSpec, specCI: pooled.specCI,
+        dor: pooled.dor, dorCI: pooled.dorCI,
+        logDOR: logDOR, seLogDOR: seLogDOR
+      });
+    }
+    if (testResults.length < 2) return null;
+    // Pairwise z-tests for logDOR difference (first vs each subsequent)
+    var comparisons = [];
+    for (var a = 0; a < testResults.length; a++) {
+      for (var b = a + 1; b < testResults.length; b++) {
+        var diff = testResults[a].logDOR - testResults[b].logDOR;
+        var seDiff = Math.sqrt(testResults[a].seLogDOR * testResults[a].seLogDOR + testResults[b].seLogDOR * testResults[b].seLogDOR);
+        var zVal = seDiff > 0 ? diff / seDiff : 0;
+        var pVal = 2 * (1 - normalCDF(Math.abs(zVal)));
+        comparisons.push({
+          test1: testResults[a].name, test2: testResults[b].name,
+          diff: diff, seDiff: seDiff, z: zVal, pValue: pVal
+        });
+      }
+    }
+    return { testResults: testResults, comparisons: comparisons };
+  }
+
+  function renderComparativeDTA(compResult, container) {
+    if (!compResult || !container) return;
+    var html = '<h4 style="margin-bottom:8px">Comparative DTA</h4>';
+    html += '<p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:8px">Side-by-side comparison of index tests with 2+ studies each.</p>';
+    html += '<table style="width:100%;font-size:0.82rem;border-collapse:collapse">';
+    html += '<thead><tr style="border-bottom:2px solid var(--border)">' +
+      '<th style="text-align:left;padding:4px 8px">Index Test</th>' +
+      '<th style="text-align:center;padding:4px 8px">k</th>' +
+      '<th style="text-align:center;padding:4px 8px">Sens (CI)</th>' +
+      '<th style="text-align:center;padding:4px 8px">Spec (CI)</th>' +
+      '<th style="text-align:center;padding:4px 8px">DOR (CI)</th>' +
+      '</tr></thead><tbody>';
+    for (var i = 0; i < compResult.testResults.length; i++) {
+      var t = compResult.testResults[i];
+      html += '<tr style="border-bottom:1px solid var(--border)">' +
+        '<td style="padding:4px 8px;font-weight:600">' + escapeHtml(t.name) + '</td>' +
+        '<td style="text-align:center;padding:4px 8px">' + t.k + '</td>' +
+        '<td style="text-align:center;padding:4px 8px">' + (t.sens * 100).toFixed(1) + '% [' + (t.sensCI[0] * 100).toFixed(1) + ', ' + (t.sensCI[1] * 100).toFixed(1) + ']</td>' +
+        '<td style="text-align:center;padding:4px 8px">' + (t.spec * 100).toFixed(1) + '% [' + (t.specCI[0] * 100).toFixed(1) + ', ' + (t.specCI[1] * 100).toFixed(1) + ']</td>' +
+        '<td style="text-align:center;padding:4px 8px">' + t.dor.toFixed(2) + ' [' + t.dorCI[0].toFixed(2) + ', ' + t.dorCI[1].toFixed(2) + ']</td>' +
+        '</tr>';
+    }
+    html += '</tbody></table>';
+    // Pairwise comparisons
+    if (compResult.comparisons.length > 0) {
+      html += '<h5 style="margin-top:12px;margin-bottom:6px;font-size:0.85rem">Pairwise logDOR Difference (z-test)</h5>';
+      html += '<table style="width:100%;font-size:0.82rem;border-collapse:collapse">';
+      html += '<thead><tr style="border-bottom:2px solid var(--border)">' +
+        '<th style="text-align:left;padding:4px 8px">Comparison</th>' +
+        '<th style="text-align:center;padding:4px 8px">Diff (logDOR)</th>' +
+        '<th style="text-align:center;padding:4px 8px">z</th>' +
+        '<th style="text-align:center;padding:4px 8px">p-value</th>' +
+        '</tr></thead><tbody>';
+      for (var c = 0; c < compResult.comparisons.length; c++) {
+        var cmp = compResult.comparisons[c];
+        var pColor = cmp.pValue < 0.05 ? 'var(--danger)' : 'var(--success)';
+        html += '<tr style="border-bottom:1px solid var(--border)">' +
+          '<td style="padding:4px 8px">' + escapeHtml(cmp.test1) + ' vs ' + escapeHtml(cmp.test2) + '</td>' +
+          '<td style="text-align:center;padding:4px 8px">' + cmp.diff.toFixed(3) + '</td>' +
+          '<td style="text-align:center;padding:4px 8px">' + cmp.z.toFixed(3) + '</td>' +
+          '<td style="text-align:center;padding:4px 8px;color:' + pColor + ';font-weight:600">' + (cmp.pValue < 0.001 ? '< 0.001' : cmp.pValue.toFixed(3)) + '</td>' +
+          '</tr>';
+      }
+      html += '</tbody></table>';
+    }
+    container.innerHTML = html;
   }
 
   // Pairwise meta-analysis engine (DerSimonian-Laird with HKSJ and REML)
@@ -9251,9 +9529,11 @@ body.dark-mode .input-error { background: #451a1a !important; }
       '<div class="stat-card"><div class="stat-label">Pooled Sens</div><div class="stat-value">' + (result.pooledSens * 100).toFixed(1) + '%</div></div>' +
       '<div class="stat-card"><div class="stat-label">Sens ' + confPct + '% CI</div><div class="stat-value">[' + (result.sensCI[0] * 100).toFixed(1) + ', ' + (result.sensCI[1] * 100).toFixed(1) + ']</div></div>' +
       (result.sensPredInt && result.k >= 3 ? '<div class="stat-card" title="Prediction interval: range where a future study\'s true sensitivity is expected to fall"><div class="stat-label">Sens PI</div><div class="stat-value">[' + (result.sensPredInt[0] * 100).toFixed(1) + ', ' + (result.sensPredInt[1] * 100).toFixed(1) + ']</div></div>' : '') +
+      (result.sensCI_profile ? '<div class="stat-card" title="Profile likelihood CI (more accurate than Wald for small k or boundary estimates)"><div class="stat-label">Sens Profile CI</div><div class="stat-value">[' + (result.sensCI_profile[0] * 100).toFixed(1) + ', ' + (result.sensCI_profile[1] * 100).toFixed(1) + ']</div></div>' : '') +
       '<div class="stat-card"><div class="stat-label">Pooled Spec</div><div class="stat-value">' + (result.pooledSpec * 100).toFixed(1) + '%</div></div>' +
       '<div class="stat-card"><div class="stat-label">Spec ' + confPct + '% CI</div><div class="stat-value">[' + (result.specCI[0] * 100).toFixed(1) + ', ' + (result.specCI[1] * 100).toFixed(1) + ']</div></div>' +
       (result.specPredInt && result.k >= 3 ? '<div class="stat-card" title="Prediction interval: range where a future study\'s true specificity is expected to fall"><div class="stat-label">Spec PI</div><div class="stat-value">[' + (result.specPredInt[0] * 100).toFixed(1) + ', ' + (result.specPredInt[1] * 100).toFixed(1) + ']</div></div>' : '') +
+      (result.specCI_profile ? '<div class="stat-card" title="Profile likelihood CI (more accurate than Wald for small k or boundary estimates)"><div class="stat-label">Spec Profile CI</div><div class="stat-value">[' + (result.specCI_profile[0] * 100).toFixed(1) + ', ' + (result.specCI_profile[1] * 100).toFixed(1) + ']</div></div>' : '') +
       '<div class="stat-card" title="Positive Likelihood Ratio = Sens/(1-Spec). PLR>10 strongly rules in disease"><div class="stat-label">PLR</div><div class="stat-value">' + result.plr.toFixed(2) + '</div></div>' +
       '<div class="stat-card" title="Negative Likelihood Ratio = (1-Sens)/Spec. NLR<0.1 strongly rules out disease"><div class="stat-label">NLR</div><div class="stat-value">' + result.nlr.toFixed(3) + '</div></div>' +
       '<div class="stat-card" title="Diagnostic Odds Ratio = (TP×TN)/(FP×FN). Higher = better overall discrimination"><div class="stat-label">DOR</div><div class="stat-value">' + result.dor.toFixed(1) +
@@ -9329,6 +9609,17 @@ body.dark-mode .input-error { background: #451a1a !important; }
       threshEl.innerHTML = '<h3 style="font-size:0.95rem;margin-bottom:4px">Threshold Effect Test</h3>' +
         '<p style="font-size:0.82rem">Spearman \u03C1 = ' + te.rho.toFixed(3) + ', p = ' + (te.pValue < 0.001 ? '< 0.001' : te.pValue.toFixed(3)) + '. ' +
         (te.significant ? '<strong style="color:var(--warning)">Significant threshold effect detected.</strong> HSROC model recommended.' : 'No significant threshold effect.') + '</p>';
+      // Task 20: Dismissable banner recommending HSROC when threshold effect is significant
+      if (te.pValue < 0.05 && result.method !== 'HSROC') {
+        var threshBanner = '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:var(--radius);padding:10px;margin-top:8px;font-size:0.82rem">' +
+          '<strong>Threshold effect detected</strong> (Spearman \u03C1 = ' + te.rho.toFixed(2) +
+          ', p = ' + (te.pValue < 0.001 ? '<0.001' : te.pValue.toFixed(3)) + '). ' +
+          'Consider using the <strong>HSROC model</strong> which explicitly models threshold variation. ' +
+          'Switch to HSROC in the method selector above. ' +
+          '<button onclick="this.parentElement.style.display=\'none\'" style="float:right;background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:1rem">&times;</button>' +
+          '</div>';
+        threshEl.insertAdjacentHTML('beforeend', threshBanner);
+      }
     }
 
     // Clinical utility
@@ -10284,30 +10575,83 @@ body.dark-mode .input-error { background: #451a1a !important; }
       plrEl.innerHTML = html;
     }
 
-    // R Code generation
+    // R Code generation — comprehensive mada replication script
     const rCodeEl = document.getElementById('advRCodeContainer');
     if (rCodeEl && result.studyData) {
       const studies = result.studyData;
-      const rCode = '# MetaSprint DTA — R mada replication script\\n' +
-        '# Generated: ' + new Date().toISOString() + '\\n' +
-        'library(mada)\\n\\n' +
-        '# Study data (TP, FP, FN, TN)\\n' +
-        'TP <- c(' + studies.map(s => s.tp).join(', ') + ')\\n' +
-        'FP <- c(' + studies.map(s => s.fp).join(', ') + ')\\n' +
-        'FN <- c(' + studies.map(s => s.fn).join(', ') + ')\\n' +
-        'TN <- c(' + studies.map(s => s.tn).join(', ') + ')\\n' +
-        'labels <- c(' + studies.map(s => '"' + (s.authorYear || s.trialId || '').replace(/["\\\n\r]/g, '') + '"').join(', ') + ')\\n\\n' +
-        '# Bivariate model (Reitsma)\\n' +
-        'fit <- reitsma(data.frame(TP=TP, FP=FP, FN=FN, TN=TN))\\n' +
-        'summary(fit)\\n\\n' +
-        '# SROC plot\\n' +
-        'plot(fit, sroclwd=2, main="SROC Curve")\\n' +
-        'points(fpr(fit), sens(fit), pch=2)\\n\\n' +
-        '# Forest plots\\n' +
-        'forest(fit)\\n';
+      const safeLabel = s => (s.authorYear || s.trialId || '').replace(/["\\\n\r]/g, '');
+      let rLines = [];
+      rLines.push('# MetaSprint DTA — Complete R mada replication script');
+      rLines.push('# Generated: ' + new Date().toISOString());
+      rLines.push('library(mada)');
+      rLines.push('');
+      rLines.push('# Study data');
+      rLines.push('TP <- c(' + studies.map(s => s.tp ?? 0).join(', ') + ')');
+      rLines.push('FP <- c(' + studies.map(s => s.fp ?? 0).join(', ') + ')');
+      rLines.push('FN <- c(' + studies.map(s => s.fn ?? 0).join(', ') + ')');
+      rLines.push('TN <- c(' + studies.map(s => s.tn ?? 0).join(', ') + ')');
+      rLines.push('labels <- c(' + studies.map(s => '"' + safeLabel(s) + '"').join(', ') + ')');
+      rLines.push('dat <- data.frame(TP=TP, FP=FP, FN=FN, TN=TN, row.names=labels)');
+      rLines.push('');
+      rLines.push('# 1. Bivariate model (Reitsma 2005)');
+      rLines.push('fit <- reitsma(dat)');
+      rLines.push('summary(fit)');
+      rLines.push('');
+      rLines.push('# 2. SROC plot with confidence and prediction regions');
+      rLines.push('plot(fit, sroclwd=2, main="Summary ROC Curve")');
+      rLines.push('points(fpr(fit), sens(fit), pch=2)');
+      rLines.push('');
+      rLines.push('# 3. Forest plots');
+      rLines.push('forest(fit, main="Coupled Forest Plot")');
+      rLines.push('');
+      rLines.push('# 4. Leave-one-out sensitivity analysis');
+      rLines.push('cat("\\n--- Leave-One-Out Analysis ---\\n")');
+      rLines.push('loo_results <- data.frame(');
+      rLines.push('  excluded = character(), sens = numeric(), spec = numeric(),');
+      rLines.push('  dor = numeric(), stringsAsFactors = FALSE');
+      rLines.push(')');
+      rLines.push('for (i in 1:nrow(dat)) {');
+      rLines.push('  fit_loo <- reitsma(dat[-i, ])');
+      rLines.push('  s <- summary(fit_loo)');
+      rLines.push('  sens_i <- plogis(s$coefficients["tsens.", "Estimate"])');
+      rLines.push('  spec_i <- 1 - plogis(s$coefficients["tfpr.", "Estimate"])');
+      rLines.push('  dor_i <- exp(s$coefficients["tsens.", "Estimate"] + (-s$coefficients["tfpr.", "Estimate"]))');
+      rLines.push('  loo_results <- rbind(loo_results, data.frame(');
+      rLines.push('    excluded = rownames(dat)[i], sens = round(sens_i, 3),');
+      rLines.push('    spec = round(spec_i, 3), dor = round(dor_i, 2),');
+      rLines.push('    stringsAsFactors = FALSE');
+      rLines.push('  ))');
+      rLines.push('}');
+      rLines.push('print(loo_results)');
+      rLines.push('');
+      rLines.push('# 5. Threshold effect test (Spearman rho between logit(Sens) and logit(FPR))');
+      rLines.push('logit_sens <- qlogis((dat$TP + 0.5) / (dat$TP + dat$FN + 1))  # +0.5 continuity correction');
+      rLines.push('logit_fpr  <- qlogis((dat$FP + 0.5) / (dat$FP + dat$TN + 1))');
+      rLines.push('cat("\\n--- Threshold Effect Test ---\\n")');
+      rLines.push('print(cor.test(logit_sens, logit_fpr, method = "spearman"))');
+      // Conditional subgroup code
+      const hasSubgroups = studies.some(s => (s.subgroup || '').trim());
+      if (hasSubgroups) {
+        rLines.push('');
+        rLines.push('# 6. Subgroup analysis');
+        rLines.push('subgroup <- c(' + studies.map(s => '"' + (s.subgroup || '').replace(/["\\\n\r]/g, '') + '"').join(', ') + ')');
+        rLines.push('dat$subgroup <- subgroup');
+        rLines.push('for (sg in unique(subgroup[subgroup != ""])) {');
+        rLines.push('  cat("\\n--- Subgroup:", sg, "---\\n")');
+        rLines.push('  sub_dat <- dat[dat$subgroup == sg, ]');
+        rLines.push('  if (nrow(sub_dat) >= 2) {');
+        rLines.push('    fit_sg <- reitsma(sub_dat)');
+        rLines.push('    print(summary(fit_sg))');
+        rLines.push('  } else {');
+        rLines.push('    cat("  Fewer than 2 studies — skipping bivariate model\\n")');
+        rLines.push('  }');
+        rLines.push('}');
+      }
+      const rCode = rLines.join('\n');
       let html = '<h4 style="margin-bottom:8px">R Replication Code (mada)</h4>';
-      html += '<pre style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px;font-size:0.75rem;overflow-x:auto;white-space:pre-wrap">' + escapeHtml(rCode.replace(/\\n/g, '\n')) + '</pre>';
-      html += '<button onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent);showToast(\'R code copied\',\'success\')" class="btn-sm btn-info" style="margin-top:4px">Copy to Clipboard</button>';
+      html += '<pre id="advRCodePre" style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px;font-size:0.75rem;overflow-x:auto;white-space:pre-wrap;max-height:400px">' + escapeHtml(rCode) + '</pre>';
+      html += '<button onclick="navigator.clipboard.writeText(document.getElementById(\'advRCodePre\').textContent);showToast(\'R code copied\',\'success\')" class="btn-sm btn-info" style="margin-top:4px">Copy to Clipboard</button>';
+      html += '<button onclick="downloadFile(document.getElementById(\'advRCodePre\').textContent, \'metasprint-dta-replication.R\', \'text/plain\')" class="btn-sm btn-outline" style="margin-top:4px;margin-left:6px">Download .R File</button>';
       rCodeEl.innerHTML = html;
     }
 
@@ -10325,14 +10669,18 @@ body.dark-mode .input-error { background: #451a1a !important; }
       faganEl.innerHTML = html;
     }
 
-    // Comparative DTA limitation notice (P0-8)
+    // Comparative DTA: auto-detect multiple index tests and show comparison
     const networkEl = document.getElementById('advNetworkContainer');
     if (networkEl) {
-      networkEl.innerHTML = '<h4 style="margin-bottom:8px">Comparative DTA</h4>' +
-        '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:var(--radius);padding:10px;font-size:0.82rem">' +
-        '<strong>Limitation:</strong> Comparative DTA meta-analysis (head-to-head test comparison) is not yet supported. ' +
-        'For reviews comparing two or more index tests, use R packages <code>mada</code> or <code>meta4diag</code>, or RevMan with the Cochrane DTA template. ' +
-        'Data can be exported via the R code above.</div>';
+      var compResult = computeComparativeDTA(extractedStudies, confLevel);
+      if (compResult) {
+        renderComparativeDTA(compResult, networkEl);
+      } else {
+        networkEl.innerHTML = '<h4 style="margin-bottom:8px">Comparative DTA</h4>' +
+          '<div style="background:#f0f9ff;border:1px solid var(--primary);border-radius:var(--radius);padding:10px;font-size:0.82rem">' +
+          '<strong>No comparison available.</strong> To enable head-to-head test comparison, enter 2+ different index test names in the "Index Test" column of the extraction table, ' +
+          'with at least 2 studies per test. The app will automatically pool each test group and compare logDOR values using z-tests.</div>';
+      }
     }
 
     // Wire Phase 4 visualizations
@@ -17831,6 +18179,128 @@ body.dark-mode .input-error { background: #451a1a !important; }
     renderAdvancedJournalGate();
   }
 
+  // --- PRISMA-DTA 27-Item Checklist ---
+  var PRISMA_DTA_ITEMS = [
+    {num:1, section:'Title', item:'Identify as systematic review of DTA studies'},
+    {num:2, section:'Abstract', item:'Structured summary with key results'},
+    {num:3, section:'Rationale', item:'Scientific rationale for the review'},
+    {num:4, section:'Objectives', item:'Review question with PIRD framework'},
+    {num:5, section:'Protocol', item:'Protocol registration (e.g., PROSPERO)'},
+    {num:6, section:'Eligibility', item:'Study inclusion/exclusion criteria'},
+    {num:7, section:'Information sources', item:'Databases and search dates'},
+    {num:8, section:'Search strategy', item:'Full electronic search for at least one database'},
+    {num:9, section:'Study selection', item:'Screening process described'},
+    {num:10, section:'Data extraction', item:'Data extraction process described'},
+    {num:11, section:'Data items', item:'Index test, reference standard, target condition defined'},
+    {num:12, section:'Risk of bias', item:'Assessment tool (QUADAS-2) described'},
+    {num:13, section:'Flow diagram', item:'Study selection flow diagram'},
+    {num:14, section:'Statistical methods', item:'Methods for pooling described'},
+    {num:15, section:'Additional analyses', item:'Sensitivity and subgroup analyses planned'},
+    {num:16, section:'Study characteristics', item:'Characteristics of included studies'},
+    {num:17, section:'Risk of bias results', item:'Risk of bias results presented'},
+    {num:18, section:'Individual results', item:'2x2 data and accuracy per study'},
+    {num:19, section:'Synthesis', item:'Meta-analytic results with forest/SROC'},
+    {num:20, section:'Additional analyses results', item:'Results of additional analyses'},
+    {num:21, section:'Summary of evidence', item:'Summary including GRADE certainty'},
+    {num:22, section:'Limitations', item:'Review limitations discussed'},
+    {num:23, section:'Conclusions', item:'Interpretation relative to objectives'},
+    {num:24, section:'Registration', item:'Registration number and protocol'},
+    {num:25, section:'Funding', item:'Funding sources and role'},
+    {num:26, section:'Conflicts', item:'Author conflicts of interest'},
+    {num:27, section:'Data availability', item:'Data sharing statement'}
+  ];
+
+  function getPRISMAAutoCheckStatus() {
+    var status = {};
+    // Item 1: Title
+    var titleVal = (document.getElementById('protTitle')?.value ?? '').trim();
+    status[1] = titleVal.length > 10 ? 'auto' : 'not_done';
+    // Item 5: Protocol (PROSPERO)
+    var protOutput = document.getElementById('protocolOutput');
+    status[5] = (protOutput && protOutput.textContent.trim().length > 50) ? 'auto' : 'not_done';
+    // Item 8: Search strategy
+    var searchInput = document.getElementById('searchInput') || document.getElementById('searchTermInput');
+    status[8] = (searchInput && searchInput.value.trim().length > 5) ? 'auto' : 'not_done';
+    // Item 13: Flow diagram
+    var prismaFlow = document.getElementById('prismaFlow');
+    status[13] = (prismaFlow && prismaFlow.innerHTML.trim().length > 100) ? 'auto' : 'not_done';
+    // Item 14: Statistical methods (analysis run)
+    status[14] = lastAnalysisResult ? 'auto' : 'not_done';
+    // Item 18: Individual results (studies extracted)
+    status[18] = extractedStudies.length >= 2 ? 'auto' : 'not_done';
+    // Item 19: Synthesis (analysis run with SROC)
+    status[19] = (lastAnalysisResult && lastAnalysisResult.pooledSens != null) ? 'auto' : 'not_done';
+    // Item 17: RoB results (QUADAS-2 assessments)
+    var hasRoB = extractedStudies.some(function(s) { return s.rob && (s.rob.d1 || s.rob.d2 || s.rob.d3 || s.rob.d4); });
+    status[17] = hasRoB ? 'auto' : 'not_done';
+    return status;
+  }
+
+  function renderPRISMADTAChecklist() {
+    var panel = document.getElementById('prismaDTAChecklistPanel');
+    if (!panel) return;
+    var autoStatus = getPRISMAAutoCheckStatus();
+    var html = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">';
+    html += '<h3 style="font-size:1rem;margin:0">PRISMA-DTA Checklist (27 items)</h3>';
+    html += '<button class="btn-sm btn-outline" onclick="exportPRISMADTACSV()">Export CSV</button>';
+    html += '</div>';
+    html += '<p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:10px">Items with a green check are auto-verified from app data. Manually tick remaining items as you complete them.</p>';
+    html += '<table style="width:100%;font-size:0.82rem;border-collapse:collapse">';
+    html += '<thead><tr style="border-bottom:2px solid var(--border)">';
+    html += '<th style="width:30px;padding:4px">#</th><th style="text-align:left;padding:4px">Section</th><th style="text-align:left;padding:4px">Item</th><th style="width:80px;text-align:center;padding:4px">Status</th>';
+    html += '</tr></thead><tbody>';
+    for (var i = 0; i < PRISMA_DTA_ITEMS.length; i++) {
+      var item = PRISMA_DTA_ITEMS[i];
+      var auto = autoStatus[item.num] === 'auto';
+      var statusLabel = auto ? '<span style="color:var(--success);font-weight:600">Auto-verified</span>' :
+        '<input type="checkbox" class="prisma-dta-check" data-item="' + item.num + '" aria-label="Mark item ' + item.num + ' as done">';
+      html += '<tr style="border-bottom:1px solid var(--border)">';
+      html += '<td style="padding:4px;text-align:center">' + item.num + '</td>';
+      html += '<td style="padding:4px;font-weight:600">' + escapeHtml(item.section) + '</td>';
+      html += '<td style="padding:4px">' + escapeHtml(item.item) + '</td>';
+      html += '<td style="padding:4px;text-align:center">' + statusLabel + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    // Summary
+    var autoCount = Object.values(autoStatus).filter(function(v) { return v === 'auto'; }).length;
+    html += '<div style="margin-top:10px;font-size:0.82rem;color:var(--text-muted)">';
+    html += '<strong>' + autoCount + '/27</strong> items auto-verified. Check remaining items manually as your review progresses.';
+    html += '</div></div>';
+    panel.innerHTML = html;
+  }
+
+  function togglePRISMADTAChecklist() {
+    var panel = document.getElementById('prismaDTAChecklistPanel');
+    if (!panel) return;
+    if (panel.style.display === 'none') {
+      panel.style.display = 'block';
+      renderPRISMADTAChecklist();
+    } else {
+      panel.style.display = 'none';
+    }
+  }
+
+  function exportPRISMADTACSV() {
+    var autoStatus = getPRISMAAutoCheckStatus();
+    var checkboxes = document.querySelectorAll('.prisma-dta-check');
+    var manualChecked = {};
+    for (var ci = 0; ci < checkboxes.length; ci++) {
+      if (checkboxes[ci].checked) {
+        manualChecked[checkboxes[ci].getAttribute('data-item')] = true;
+      }
+    }
+    var header = 'Item Number,Section,Description,Status';
+    var rows = PRISMA_DTA_ITEMS.map(function(item) {
+      var status = autoStatus[item.num] === 'auto' ? 'Auto-verified' :
+        (manualChecked[item.num] ? 'Manual' : 'Not done');
+      return item.num + ',' + csvSafeCell(item.section) + ',' + csvSafeCell(item.item) + ',' + status;
+    });
+    downloadFile(header + '\n' + rows.join('\n'), 'prisma-dta-checklist.csv', 'text/csv');
+    showToast('PRISMA-DTA checklist exported as CSV', 'success');
+  }
+
   async function generatePaper() {
     const project = projects.find(p => p.id === currentProjectId);
     if (!project) return;
@@ -17929,6 +18399,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
           (result.specCI[1] * 100).toFixed(1) + ')' +
           (result.specPredInt && result.k >= 3 ? ' (prediction interval ' + (result.specPredInt[0] * 100).toFixed(1) + ' to ' + (result.specPredInt[1] * 100).toFixed(1) + ')' : '') +
           '. ' +
+          (result.sensCI_profile ? 'Profile likelihood CIs (recommended for k<10): sensitivity ' + (result.sensCI_profile[0] * 100).toFixed(1) + ' to ' + (result.sensCI_profile[1] * 100).toFixed(1) + ', specificity ' + (result.specCI_profile[0] * 100).toFixed(1) + ' to ' + (result.specCI_profile[1] * 100).toFixed(1) + '. ' : '') +
           'The diagnostic odds ratio was ' + (result.dor != null ? result.dor.toFixed(2) : 'N/A') +
           (result.dorCI ? ' (' + confPct + '% CI ' + result.dorCI[0].toFixed(2) + ' to ' + result.dorCI[1].toFixed(2) + ')' : '') +
           ', positive likelihood ratio ' + (result.plr != null ? result.plr.toFixed(2) : 'N/A') +
@@ -18037,6 +18508,49 @@ body.dark-mode .input-error { background: #451a1a !important; }
     showToast('Plot exported', 'success');
   }
 
+  function exportPlotPNG(containerId, filename, dpi) {
+    dpi = dpi ?? 300;
+    var container = document.getElementById(containerId);
+    if (!container) return;
+    var svgEl = container.querySelector('svg');
+    if (!svgEl) { showToast('No plot to export', 'warning'); return; }
+    var serializer = new XMLSerializer();
+    var svgStr = resolveCSSVarsInSVG(serializer.serializeToString(svgEl));
+    // Set explicit dimensions
+    var w = svgEl.viewBox?.baseVal?.width || svgEl.clientWidth || 500;
+    var h = svgEl.viewBox?.baseVal?.height || svgEl.clientHeight || 400;
+    var svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+    var url = URL.createObjectURL(svgBlob);
+    var img = new Image();
+    img.onload = function() {
+      var scale = dpi / 96;
+      var canvas = document.createElement('canvas');
+      canvas.width = Math.round(w * scale);
+      canvas.height = Math.round(h * scale);
+      var ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(function(blob) {
+        URL.revokeObjectURL(url);
+        if (!blob) { showToast('PNG export failed', 'danger'); return; }
+        var pngUrl = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = pngUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function() { URL.revokeObjectURL(pngUrl); }, 60000);
+        showToast('PNG exported at ' + dpi + ' DPI', 'success');
+      }, 'image/png');
+    };
+    img.onerror = function() {
+      URL.revokeObjectURL(url);
+      showToast('Failed to render SVG for PNG export', 'danger');
+    };
+    img.src = url;
+  }
+
   function copyAnalysisSummary() {
     if (!lastAnalysisResult) { showToast('Run analysis first', 'warning'); return; }
     const r = lastAnalysisResult;
@@ -18054,6 +18568,300 @@ body.dark-mode .input-error { background: #451a1a !important; }
       (r.youdenJ != null ? 'Youden J: ' + r.youdenJ.toFixed(3) + ', NND: ' + (r.youdenJ > 0 ? (1 / r.youdenJ).toFixed(1) : 'N/A') + '\n' : '') +
       (r.trimFill && r.trimFill.k0 > 0 ? 'Trim-and-Fill (L0): ' + r.trimFill.k0 + ' imputed, adjusted DOR = ' + r.trimFill.adjustedDOR.toFixed(2) + ' (original = ' + r.trimFill.originalDOR.toFixed(2) + ')\n' : '');
     navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard', 'success'));
+  }
+
+  function exportCharacteristicsTable() {
+    if (!extractedStudies || !extractedStudies.length) { showToast('No studies extracted', 'warning'); return; }
+    var header = 'Author/Year,Index Test,Threshold,Population,N (Diseased),N (Healthy),Total N,Prevalence (%)';
+    var rows = extractedStudies.filter(function(s) {
+      return s.tp != null && s.tn != null;
+    }).map(function(s) {
+      var tp = parseInt(s.tp) || 0, fp = parseInt(s.fp) || 0, fn = parseInt(s.fn) || 0, tn = parseInt(s.tn) || 0;
+      var diseased = tp + fn;
+      var healthy = tn + fp;
+      var n = diseased + healthy;
+      var prev = n > 0 ? ((diseased / n) * 100).toFixed(1) : '';
+      return [
+        csvSafeCell(s.authorYear || s.studyId || ''),
+        csvSafeCell(s.indexTest || ''),
+        csvSafeCell(s.threshold || ''),
+        csvSafeCell(s.analysisPopulation || s.population || ''),
+        diseased, healthy, n, prev
+      ].join(',');
+    });
+    downloadFile(header + '\n' + rows.join('\n'), 'table1-characteristics.csv', 'text/csv');
+    showToast('Table 1 exported (' + rows.length + ' studies)', 'success');
+  }
+
+  function exportAccuracyTable() {
+    if (!lastAnalysisResult || !lastAnalysisResult.studyData) { showToast('Run analysis first', 'warning'); return; }
+    var confLevel = lastAnalysisResult.confLevel ?? 0.95;
+    var alpha = 1 - confLevel;
+    var confPct = Math.round(confLevel * 100);
+    var header = 'Study,TP,FP,FN,TN,Sens (%),' + confPct + '% CI Lo,' + confPct + '% CI Hi,Spec (%),' + confPct + '% CI Lo,' + confPct + '% CI Hi,PLR,NLR,DOR';
+    var rows = lastAnalysisResult.studyData.map(function(s) {
+      var nSens = s.tp + s.fn, nSpec = s.tn + s.fp;
+      var ciSens = wilsonCI(s.tp, nSens, alpha);
+      var ciSpec = wilsonCI(s.tn, nSpec, alpha);
+      var plr = (1 - s.spec) > 0 ? (s.sens / (1 - s.spec)).toFixed(2) : 'Inf';
+      var nlr = s.spec > 0 ? ((1 - s.sens) / s.spec).toFixed(3) : 'Inf';
+      var dor = (s.fp > 0 && s.fn > 0) ? ((s.tp * s.tn) / (s.fp * s.fn)).toFixed(2) : 'Inf';
+      return [
+        csvSafeCell(s.authorYear || ''),
+        s.tp, s.fp, s.fn, s.tn,
+        (s.sens * 100).toFixed(1), (ciSens[0] * 100).toFixed(1), (ciSens[1] * 100).toFixed(1),
+        (s.spec * 100).toFixed(1), (ciSpec[0] * 100).toFixed(1), (ciSpec[1] * 100).toFixed(1),
+        plr, nlr, dor
+      ].join(',');
+    });
+    downloadFile(header + '\n' + rows.join('\n'), 'table2-accuracy.csv', 'text/csv');
+    showToast('Table 2 exported (' + rows.length + ' studies)', 'success');
+  }
+
+  function exportPooledResultsCSV() {
+    var r = lastAnalysisResult;
+    if (!r) { showToast('Run analysis first', 'warning'); return; }
+    var het = r.heterogeneity ?? {};
+    var grade = r.grade ?? {};
+    var header = 'Metric,Estimate,CI_Lo,CI_Hi,PI_Lo,PI_Hi';
+    var rows = [
+      ['Pooled Sensitivity (%)', (r.pooledSens*100).toFixed(1), (r.sensCI[0]*100).toFixed(1), (r.sensCI[1]*100).toFixed(1), r.sensPredInt ? (r.sensPredInt[0]*100).toFixed(1) : '', r.sensPredInt ? (r.sensPredInt[1]*100).toFixed(1) : ''],
+      ['Pooled Specificity (%)', (r.pooledSpec*100).toFixed(1), (r.specCI[0]*100).toFixed(1), (r.specCI[1]*100).toFixed(1), r.specPredInt ? (r.specPredInt[0]*100).toFixed(1) : '', r.specPredInt ? (r.specPredInt[1]*100).toFixed(1) : ''],
+      ['DOR', r.dor.toFixed(2), r.dorCI ? r.dorCI[0].toFixed(2) : '', r.dorCI ? r.dorCI[1].toFixed(2) : '', '', ''],
+      ['PLR', r.plr.toFixed(2), '', '', '', ''],
+      ['NLR', r.nlr.toFixed(3), '', '', '', ''],
+      ['AUC', r.auc != null ? r.auc.toFixed(3) : '', '', '', '', ''],
+      ['I2 Sensitivity (%)', (het.I2_sens ?? 0).toFixed(1), het.I2_sens_CI ? het.I2_sens_CI[0].toFixed(1) : '', het.I2_sens_CI ? het.I2_sens_CI[1].toFixed(1) : '', '', ''],
+      ['I2 Specificity (%)', (het.I2_spec ?? 0).toFixed(1), het.I2_spec_CI ? het.I2_spec_CI[0].toFixed(1) : '', het.I2_spec_CI ? het.I2_spec_CI[1].toFixed(1) : '', '', ''],
+      ['tau2 Sensitivity', (r.tau2_sens ?? 0).toFixed(4), '', '', '', ''],
+      ['tau2 Specificity', (r.tau2_spec ?? 0).toFixed(4), '', '', '', ''],
+      ['k', r.k, '', '', '', ''],
+      ['rho', r.rho != null ? r.rho.toFixed(3) : '', '', '', '', ''],
+      ['GRADE Certainty', grade.overall ?? '', '', '', '', '']
+    ];
+    var csv = header + '\n' + rows.map(function(r) { return r.join(','); }).join('\n');
+    downloadFile(csv, 'pooled-results.csv', 'text/csv');
+    showToast('Pooled results exported', 'success');
+  }
+
+  // ============================================================
+  // QUADAS-2 CSV Export + Proportional Bar Chart
+  // ============================================================
+  function exportQUADAS2CSV() {
+    var studies = extractedStudies || [];
+    var robs = getRoBAssessments() || [];
+    var robMap = {};
+    robs.forEach(function(r) { robMap[r.studyId] = r; });
+
+    var assessed = studies.filter(function(s) {
+      var rob = s.rob || robMap[s.id] || {};
+      return rob.d1 || rob.d2 || rob.d3 || rob.d4 || rob.overall;
+    });
+    if (!assessed.length) { showToast('No QUADAS-2 assessments found', 'warning'); return; }
+
+    var header = 'Study,D1_PatientSelection,D2_IndexTest,D3_ReferenceStandard,D4_FlowTiming,App_PatientSelection,App_IndexTest,App_ReferenceStandard,Overall';
+    var rows = assessed.map(function(s) {
+      var rob = s.rob || robMap[s.id] || {};
+      var sprint = robMap[s.id] || {};
+      return [
+        csvSafeCell(s.authorYear || s.studyId || ''),
+        csvSafeCell(rob.d1 || sprint.d1 || ''),
+        csvSafeCell(rob.d2 || sprint.d2 || ''),
+        csvSafeCell(rob.d3 || sprint.d3 || ''),
+        csvSafeCell(rob.d4 || sprint.d4 || ''),
+        csvSafeCell(rob.d1_app || sprint.d1_app || ''),
+        csvSafeCell(rob.d2_app || sprint.d2_app || ''),
+        csvSafeCell(rob.d3_app || sprint.d3_app || ''),
+        csvSafeCell(rob.overall || sprint.overall || '')
+      ].join(',');
+    });
+    downloadFile(header + '\n' + rows.join('\n'), 'quadas2-summary.csv', 'text/csv');
+    showToast('QUADAS-2 exported (' + rows.length + ' studies)', 'success');
+  }
+
+  function renderQUADAS2BarChart() {
+    var studies = extractedStudies || [];
+    var robs = getRoBAssessments() || [];
+    var robMap = {};
+    robs.forEach(function(r) { robMap[r.studyId] = r; });
+
+    var domains = [
+      { key: 'd1', label: 'Patient Selection' },
+      { key: 'd2', label: 'Index Test' },
+      { key: 'd3', label: 'Reference Standard' },
+      { key: 'd4', label: 'Flow and Timing' }
+    ];
+
+    var w = 500, barH = 28, gap = 6, labelW = 150, pad = 20;
+    var legendH = 20;
+    var h = pad + domains.length * (barH + gap) + legendH + pad;
+    var barW = w - labelW - pad * 2;
+
+    // Check if any domain has data
+    var hasData = false;
+    domains.forEach(function(d) {
+      studies.forEach(function(s) {
+        var rob = s.rob || robMap[s.id] || {};
+        var val = (rob[d.key] || '').toLowerCase();
+        if (val === 'low' || val === 'unclear' || val === 'high') hasData = true;
+      });
+    });
+    if (!hasData) return '';
+
+    var svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" xmlns="http://www.w3.org/2000/svg" style="max-width:500px;width:100%;font-family:Arial,sans-serif">';
+    svg += '<text x="' + (w / 2) + '" y="14" text-anchor="middle" font-size="11" font-weight="bold" fill="var(--text)">QUADAS-2 Risk of Bias Summary</text>';
+
+    domains.forEach(function(d, di) {
+      var counts = { low: 0, unclear: 0, high: 0 };
+      studies.forEach(function(s) {
+        var rob = s.rob || robMap[s.id] || {};
+        var val = (rob[d.key] || '').toLowerCase();
+        if (val === 'low') counts.low++;
+        else if (val === 'unclear') counts.unclear++;
+        else if (val === 'high') counts.high++;
+      });
+      var total = counts.low + counts.unclear + counts.high;
+      if (total === 0) return;
+
+      var y = pad + di * (barH + gap);
+      svg += '<text x="' + (labelW - 4) + '" y="' + (y + barH / 2 + 4) + '" text-anchor="end" font-size="10" fill="var(--text)">' + escapeHtml(d.label) + '</text>';
+
+      var x = labelW;
+      // Low (green)
+      var wLow = barW * counts.low / total;
+      if (wLow > 0) {
+        svg += '<rect x="' + x + '" y="' + y + '" width="' + wLow + '" height="' + barH + '" fill="#22c55e" rx="2"/>';
+        if (wLow > 25) svg += '<text x="' + (x + wLow / 2) + '" y="' + (y + barH / 2 + 4) + '" text-anchor="middle" font-size="9" fill="white">' + Math.round(counts.low / total * 100) + '%</text>';
+        x += wLow;
+      }
+      // Unclear (yellow)
+      var wUnclear = barW * counts.unclear / total;
+      if (wUnclear > 0) {
+        svg += '<rect x="' + x + '" y="' + y + '" width="' + wUnclear + '" height="' + barH + '" fill="#f59e0b" rx="2"/>';
+        if (wUnclear > 25) svg += '<text x="' + (x + wUnclear / 2) + '" y="' + (y + barH / 2 + 4) + '" text-anchor="middle" font-size="9" fill="white">' + Math.round(counts.unclear / total * 100) + '%</text>';
+        x += wUnclear;
+      }
+      // High (red)
+      var wHigh = barW * counts.high / total;
+      if (wHigh > 0) {
+        svg += '<rect x="' + x + '" y="' + y + '" width="' + wHigh + '" height="' + barH + '" fill="#ef4444" rx="2"/>';
+        if (wHigh > 25) svg += '<text x="' + (x + wHigh / 2) + '" y="' + (y + barH / 2 + 4) + '" text-anchor="middle" font-size="9" fill="white">' + Math.round(counts.high / total * 100) + '%</text>';
+      }
+    });
+
+    // Legend
+    var ly = pad + domains.length * (barH + gap) + 4;
+    svg += '<rect x="' + labelW + '" y="' + (ly - 1) + '" width="10" height="10" fill="#22c55e" rx="1"/>';
+    svg += '<text x="' + (labelW + 14) + '" y="' + (ly + 8) + '" font-size="9" fill="var(--text-muted)">Low</text>';
+    svg += '<rect x="' + (labelW + 50) + '" y="' + (ly - 1) + '" width="10" height="10" fill="#f59e0b" rx="1"/>';
+    svg += '<text x="' + (labelW + 64) + '" y="' + (ly + 8) + '" font-size="9" fill="var(--text-muted)">Unclear</text>';
+    svg += '<rect x="' + (labelW + 115) + '" y="' + (ly - 1) + '" width="10" height="10" fill="#ef4444" rx="1"/>';
+    svg += '<text x="' + (labelW + 129) + '" y="' + (ly + 8) + '" font-size="9" fill="var(--text-muted)">High</text>';
+
+    svg += '</svg>';
+    return svg;
+  }
+
+  function updateQUADAS2BarChart() {
+    var container = document.getElementById('quadas2BarChartContainer');
+    if (!container) return;
+    var chartHtml = renderQUADAS2BarChart();
+    container.innerHTML = chartHtml || '';
+  }
+
+  // ============================================================
+  // GRADE-DTA Evidence Profile Export (HTML + CSV)
+  // ============================================================
+  function exportGRADEProfile(format) {
+    var r = lastAnalysisResult;
+    if (!r) { showToast('Run analysis first', 'warning'); return; }
+    var grade = r.grade ?? computeGRADE(r, r.studyData);
+    if (!grade) { showToast('GRADE assessment not available', 'warning'); return; }
+
+    var domainData = [
+      { key: 'riskOfBias', label: 'Risk of Bias' },
+      { key: 'indirectness', label: 'Indirectness' },
+      { key: 'inconsistency', label: 'Inconsistency' },
+      { key: 'imprecision', label: 'Imprecision' },
+      { key: 'publicationBias', label: 'Publication Bias' }
+    ];
+
+    function ratingText(val) {
+      if (val === 0) return 'No concern';
+      if (val === -1) return 'Serious (-1)';
+      if (val === -2) return 'Very serious (-2)';
+      return 'Not assessed';
+    }
+
+    function reasonText(key, domains) {
+      if (key === 'riskOfBias') {
+        if (domains.robNotAssessed) return 'QUADAS-2 not yet assessed';
+        return domains[key] === 0 ? 'Majority low risk' : (domains[key] === -1 ? 'Some high/unclear risk' : 'Majority high risk');
+      }
+      if (key === 'inconsistency') {
+        return domains[key] === 0 ? 'I-squared acceptable' : (domains[key] === -1 ? 'Substantial heterogeneity (I-squared >50%)' : 'Considerable heterogeneity (I-squared >75%)');
+      }
+      if (key === 'imprecision') {
+        return domains[key] === 0 ? 'Adequate precision' : (domains[key] === -1 ? 'Wide confidence intervals' : 'Very wide CIs and few studies');
+      }
+      if (key === 'publicationBias') {
+        return domains[key] === 0 ? 'No evidence of bias' : 'Deeks test or S-value suggests bias';
+      }
+      if (key === 'indirectness') {
+        return domains[key] === 0 ? 'No concern' : (domains[key] === -1 ? 'Some applicability concerns' : 'Serious applicability concerns');
+      }
+      return '';
+    }
+
+    if (format === 'csv') {
+      var header = 'Domain,Rating,Downgrade Reasons';
+      var rows = [];
+      for (var i = 0; i < domainData.length; i++) {
+        var d = domainData[i];
+        var val = grade.domains[d.key] ?? 0;
+        rows.push([
+          d.label,
+          csvSafeCell(ratingText(val)),
+          csvSafeCell(reasonText(d.key, grade.domains))
+        ].join(','));
+      }
+      rows.push(['Overall Certainty', csvSafeCell(grade.label ?? 'Not assessed'), ''].join(','));
+      downloadFile(header + '\n' + rows.join('\n'), 'grade-profile.csv', 'text/csv');
+      showToast('GRADE profile exported as CSV', 'success');
+    } else {
+      // Self-contained HTML
+      var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>GRADE-DTA Evidence Profile</title>';
+      html += '<style>body{font-family:Arial,sans-serif;max-width:800px;margin:20px auto;font-size:14px}';
+      html += 'table{width:100%;border-collapse:collapse;margin-top:16px}';
+      html += 'th,td{border:1px solid #ccc;padding:6px 10px;text-align:left}';
+      html += 'th{background:#f3f4f6}';
+      html += '.HIGH{color:#16a34a;font-weight:bold}.MODERATE{color:#2563eb;font-weight:bold}';
+      html += '.LOW{color:#ea580c;font-weight:bold}.VERY-LOW{color:#dc2626;font-weight:bold}';
+      html += '</style></head><body>';
+      html += '<h1>GRADE-DTA Evidence Profile</h1>';
+      html += '<p>Generated by MetaSprint DTA on ' + new Date().toLocaleDateString() + '</p>';
+      html += '<table><thead><tr><th>Domain</th><th>Rating</th><th>Justification</th></tr></thead><tbody>';
+
+      for (var j = 0; j < domainData.length; j++) {
+        var dd = domainData[j];
+        var dval = grade.domains[dd.key] ?? 0;
+        var rColor = dval === 0 ? '#16a34a' : dval === -1 ? '#ea580c' : '#dc2626';
+        html += '<tr><td>' + escapeHtml(dd.label) + '</td><td style="color:' + rColor + ';font-weight:600">' + escapeHtml(ratingText(dval)) + '</td><td>' + escapeHtml(reasonText(dd.key, grade.domains)) + '</td></tr>';
+      }
+
+      var certClass = (grade.label ?? '').replace(/\s+/g, '-');
+      html += '</tbody></table>';
+      html += '<p style="margin-top:16px;font-size:16px">Overall certainty: <span class="' + escapeHtml(certClass) + '">' + escapeHtml(grade.label ?? 'Not assessed') + '</span></p>';
+      html += '<p style="font-size:12px;color:#666;margin-top:20px">';
+      html += 'Pooled Sensitivity: ' + ((r.pooledSens ?? 0) * 100).toFixed(1) + '%';
+      html += ' | Pooled Specificity: ' + ((r.pooledSpec ?? 0) * 100).toFixed(1) + '%';
+      html += ' | k = ' + (r.k ?? 0) + ' studies';
+      html += '</p>';
+      html += '</body></html>';
+
+      downloadFile(html, 'grade-evidence-profile.html', 'text/html');
+      showToast('GRADE profile exported as HTML', 'success');
+    }
   }
 
   const TRUTHCERT_BRIDGE_STORAGE_KEY = 'metasprint_truthcert_bridge_payload_v1';
@@ -22191,6 +22999,59 @@ body.dark-mode .input-error { background: #451a1a !important; }
   document.addEventListener('DOMContentLoaded', async () => {
     try {
       loadDarkMode();
+      // Task 19: Excel/Sheets paste support on extract phase
+      var extractPhase = document.getElementById('phase-extract');
+      if (extractPhase) {
+        extractPhase.addEventListener('paste', function(e) {
+          var text = (e.clipboardData || window.clipboardData)?.getData('text/plain');
+          if (!text || !text.includes('\t')) return; // Only tab-separated
+          e.preventDefault();
+          var rows = text.trim().split('\n').map(function(r) { return r.split('\t').map(function(c) { return c.trim(); }); });
+          if (rows.length < 1) return;
+          // Auto-detect header
+          var hdr = rows[0].map(function(h) { return h.toLowerCase().replace(/[^a-z0-9]/g, ''); });
+          var colMap = {};
+          var fieldAliases = {
+            tp: ['tp', 'truepositives', 'truepositive', 'truepos'],
+            fp: ['fp', 'falsepositives', 'falsepositive', 'falsepos'],
+            fn: ['fn', 'falsenegatives', 'falsenegative', 'falseneg'],
+            tn: ['tn', 'truenegatives', 'truenegative', 'trueneg'],
+            study: ['study', 'authoryear', 'author', 'studyid', 'name', 'label'],
+            indexTest: ['indextest', 'test', 'index'],
+            threshold: ['threshold', 'cutoff', 'cutpoint'],
+            subgroup: ['subgroup', 'group', 'category']
+          };
+          for (var field in fieldAliases) {
+            for (var fi = 0; fi < hdr.length; fi++) {
+              if (fieldAliases[field].indexOf(hdr[fi]) >= 0) { colMap[field] = fi; break; }
+            }
+          }
+          var hasHeader = colMap.tp != null;
+          var dataRows = hasHeader ? rows.slice(1) : rows;
+          var count = 0;
+          for (var ri = 0; ri < dataRows.length; ri++) {
+            var row = dataRows[ri];
+            var tp = parseInt(row[colMap.tp ?? 1]);
+            var fp = parseInt(row[colMap.fp ?? 2]);
+            var fn = parseInt(row[colMap.fn ?? 3]);
+            var tn = parseInt(row[colMap.tn ?? 4]);
+            if (isNaN(tp) || isNaN(fp) || isNaN(fn) || isNaN(tn)) continue;
+            if (tp < 0 || fp < 0 || fn < 0 || tn < 0) continue;
+            addStudyRow({
+              authorYear: row[colMap.study ?? 0] || '',
+              tp: tp, fp: fp, fn: fn, tn: tn,
+              indexTest: colMap.indexTest != null ? (row[colMap.indexTest] || '') : '',
+              threshold: colMap.threshold != null ? (row[colMap.threshold] || '') : '',
+              subgroup: colMap.subgroup != null ? (row[colMap.subgroup] || '') : ''
+            });
+            count++;
+          }
+          if (count > 0) {
+            showToast('Pasted ' + count + ' studies from clipboard', 'success');
+            renderExtractTable();
+          }
+        });
+      }
       // Arrow key navigation for reference list items
       document.getElementById('refList').addEventListener('keydown', function(e) {
         var items = Array.from(e.currentTarget.querySelectorAll('.ref-item'));
