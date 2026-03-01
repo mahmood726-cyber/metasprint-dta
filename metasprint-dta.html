@@ -1506,6 +1506,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
       <div id="cumulativeContainer" style="margin-top:20px"></div>
       <div id="metaRegressionContainer" style="margin-top:20px"></div>
       <div id="heterogeneityContainer" style="margin-top:20px"></div>
+      <div id="robSensitivityContainer" style="margin-top:20px"></div>
 
       <!-- ========== ADVANCED DTA FEATURES (ported from DTA Pro) ========== -->
       <div id="advancedDTASection" style="margin-top:24px;display:none">
@@ -7650,6 +7651,95 @@ body.dark-mode .input-error { background: #451a1a !important; }
     return { slope, intercept, seSlope, t, pValue, x: invSqrtESS, logDOR: lDOR, ess, significant: pValue < 0.10, n, warning: n < 10 ? 'Limited power with <10 studies' : null };
   }
 
+  // --- Trim-and-Fill for DTA (Duval-Tweedie L0 estimator on logDOR) ---
+  function trimAndFillDTA(studies) {
+    if (studies.length < 5) return null;
+    // Work on logDOR scale
+    var yi = studies.map(function(s) { return s.logDOR; });
+    var vi = studies.map(function(s) {
+      var a = 1/(s.tp+0.5) + 1/(s.fp+0.5) + 1/(s.fn+0.5) + 1/(s.tn+0.5);
+      return a;
+    });
+    var k = yi.length;
+    // Step 1: Estimate center (DL pooled logDOR)
+    var wi = vi.map(function(v) { return 1/v; });
+    var sumW = wi.reduce(function(a,b) { return a+b; }, 0);
+    var mu0 = wi.reduce(function(s,w,i) { return s + w*yi[i]; }, 0) / sumW;
+    // Step 2: L0 estimator — rank-based iterative
+    var k0 = 0;
+    var Tplus = 0, Tminus = 0;
+    for (var iter = 0; iter < 20; iter++) {
+      var devs = yi.map(function(y) { return y - mu0; });
+      var absDevs = devs.map(function(d) { return Math.abs(d); });
+      // Rank by absolute deviation
+      var indices = absDevs.map(function(d, i) { return i; });
+      indices.sort(function(a, b) { return absDevs[a] - absDevs[b]; });
+      var ranks = new Array(k);
+      for (var ri = 0; ri < k; ri++) ranks[indices[ri]] = ri + 1;
+      // T+ and T- = sum of ranks on positive/negative side
+      Tplus = 0; Tminus = 0;
+      for (var i = 0; i < k; i++) {
+        if (devs[i] >= 0) Tplus += ranks[i];
+        else Tminus += ranks[i];
+      }
+      var T = Math.min(Tplus, Tminus);
+      var missingSide = Tplus < Tminus ? 1 : -1;
+      var newK0 = Math.max(0, Math.round((4 * T - k * (k + 1)) / (2 * k - 1)));
+      if (newK0 === k0 && iter > 0) break;
+      k0 = newK0;
+      if (k0 === 0) break;
+      // Step 3: Impute k0 studies by reflecting the most extreme from heavy side
+      var extremes = [];
+      for (var i = 0; i < k; i++) {
+        if (Math.sign(devs[i]) !== missingSide || devs[i] === 0) {
+          extremes.push({ idx: i, absD: Math.abs(devs[i]) });
+        }
+      }
+      extremes.sort(function(a, b) { return b.absD - a.absD; });
+      var impYi = [], impVi = [];
+      for (var j = 0; j < Math.min(k0, extremes.length); j++) {
+        var idx = extremes[j].idx;
+        impYi.push(mu0 - devs[idx]); // reflect
+        impVi.push(vi[idx]);
+      }
+      // Re-estimate mu0 with augmented data
+      var allYi = yi.concat(impYi);
+      var allVi = vi.concat(impVi);
+      var allWi = allVi.map(function(v) { return 1/v; });
+      var allSumW = allWi.reduce(function(a,b) { return a+b; }, 0);
+      mu0 = allWi.reduce(function(s,w,i) { return s + w*allYi[i]; }, 0) / allSumW;
+    }
+    // Generate imputed study data for funnel plot
+    var imputedStudies = [];
+    if (k0 > 0) {
+      var devsFinal = yi.map(function(y) { return y - mu0; });
+      var missingSideFinal = Tplus < Tminus ? 1 : -1;
+      var extremesFinal = [];
+      for (var i = 0; i < k; i++) {
+        if (Math.sign(devsFinal[i]) !== missingSideFinal || devsFinal[i] === 0) {
+          extremesFinal.push({ idx: i, absD: Math.abs(devsFinal[i]) });
+        }
+      }
+      extremesFinal.sort(function(a, b) { return b.absD - a.absD; });
+      for (var j = 0; j < Math.min(k0, extremesFinal.length); j++) {
+        var idx = extremesFinal[j].idx;
+        imputedStudies.push({
+          logDOR: mu0 - devsFinal[idx],
+          variance: vi[idx],
+          ess: studies[idx].tp + studies[idx].fp + studies[idx].fn + studies[idx].tn
+        });
+      }
+    }
+    var origMu = wi.reduce(function(s,w,i) { return s + w*yi[i]; }, 0) / sumW;
+    return {
+      k0: k0,
+      adjustedLogDOR: mu0,
+      adjustedDOR: Math.exp(mu0),
+      originalDOR: Math.exp(origMu),
+      imputedStudies: imputedStudies
+    };
+  }
+
   // --- Threshold Effect Test (Spearman rank correlation) ---
   function thresholdEffectTest(studies) {
     const n = studies.length;
@@ -7743,6 +7833,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     }
     result.srocCurve = generateSROCCurve(result, 100);
     result.deeks = deeksTest(prepared);
+    result.trimFill = trimAndFillDTA(prepared);
     result.thresholdEffect = thresholdEffectTest(prepared);
     result.clinicalUtility = computeClinicalUtility(result.pooledSens, result.pooledSpec);
     result.youdenJ = youdenIndex(result.pooledSens, result.pooledSpec);
@@ -8844,8 +8935,15 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const ess = dk.ess;
     const logDOR = dk.logDOR;
     const sqrtESS = ess.map(e => Math.sqrt(e));
-    const minX = Math.min(...logDOR) - 0.5, maxX = Math.max(...logDOR) + 0.5;
-    const maxY = Math.max(...sqrtESS) * 1.1;
+    // Collect imputed study data for axis scaling
+    const tf = result.trimFill;
+    const imputed = (tf && tf.k0 > 0 && tf.imputedStudies) ? tf.imputedStudies : [];
+    const impLogDOR = imputed.map(function(s) { return s.logDOR; });
+    const impSqrtESS = imputed.map(function(s) { return Math.sqrt(s.ess); });
+    const allLogDOR = logDOR.concat(impLogDOR);
+    const allSqrtESS = sqrtESS.concat(impSqrtESS);
+    const minX = Math.min(...allLogDOR) - 0.5, maxX = Math.max(...allLogDOR) + 0.5;
+    const maxY = Math.max(...allSqrtESS) * 1.1;
     const xScale = v => pad + (v - minX) / (maxX - minX) * (w - 2 * pad);
     const yScale = v => h - pad - (v / maxY) * (h - 2 * pad);
     let svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Deeks funnel plot" style="max-width:500px;width:100%;font-family:var(--font)">';
@@ -8863,6 +8961,19 @@ body.dark-mode .input-error { background: #451a1a !important; }
     logDOR.forEach((ld, i) => {
       svg += '<circle cx="' + xScale(ld) + '" cy="' + yScale(sqrtESS[i]) + '" r="4" fill="var(--primary)" opacity="0.7"/>';
     });
+    // Imputed studies from trim-and-fill (hollow circles)
+    if (imputed.length > 0) {
+      imputed.forEach(function(s) {
+        var cx = xScale(s.logDOR);
+        var cy = yScale(Math.sqrt(s.ess));
+        svg += '<circle cx="' + cx + '" cy="' + cy + '" r="4" fill="none" stroke="var(--danger)" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.8"/>';
+      });
+      // Legend for imputed points
+      svg += '<circle cx="' + (w - pad - 100) + '" cy="' + (pad + 8) + '" r="4" fill="var(--primary)" opacity="0.7"/>';
+      svg += '<text x="' + (w - pad - 92) + '" y="' + (pad + 12) + '" font-size="9" fill="var(--text)">Observed</text>';
+      svg += '<circle cx="' + (w - pad - 100) + '" cy="' + (pad + 24) + '" r="4" fill="none" stroke="var(--danger)" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.8"/>';
+      svg += '<text x="' + (w - pad - 92) + '" y="' + (pad + 28) + '" font-size="9" fill="var(--text)">Imputed (T&amp;F)</text>';
+    }
     svg += '<text x="' + (w / 2) + '" y="' + (h - 5) + '" text-anchor="middle" font-size="10" fill="var(--text)">log(DOR)</text>';
     svg += '<text x="12" y="' + (h / 2) + '" text-anchor="middle" font-size="10" fill="var(--text)" transform="rotate(-90,12,' + (h / 2) + ')">sqrt(ESS)</text>';
     svg += '</svg>';
@@ -9015,6 +9126,21 @@ body.dark-mode .input-error { background: #451a1a !important; }
       } else {
         deeksHtml += '<p style="font-size:0.82rem">Slope = ' + result.deeks.slope.toFixed(3) + ', t = ' + result.deeks.t.toFixed(2) + ', p = ' + (result.deeks.pValue < 0.001 ? '< 0.001' : result.deeks.pValue.toFixed(3)) + '. ' +
           (result.deeks.significant ? '<strong style="color:var(--warning)">Asymmetry detected (p < 0.10)</strong> — pooled accuracy may be overestimated due to publication bias or small-study effects. Interpret results with caution.' : 'No evidence of asymmetry (p \u2265 0.10). Publication bias is unlikely, though the test has limited power with few studies.') + '</p>';
+      }
+      // Trim-and-fill results
+      if (result.trimFill && result.trimFill.k0 > 0) {
+        deeksHtml += '<div style="margin-top:10px;padding:10px;background:var(--surface);border-radius:var(--radius);border:1px solid var(--border)">';
+        deeksHtml += '<strong>Trim-and-Fill (Duval-Tweedie L0):</strong> ';
+        deeksHtml += result.trimFill.k0 + ' imputed ' + (result.trimFill.k0 === 1 ? 'study' : 'studies') + '. ';
+        deeksHtml += 'Adjusted DOR = ' + result.trimFill.adjustedDOR.toFixed(2) + ' (original = ' + result.trimFill.originalDOR.toFixed(2) + ').';
+        if (result.trimFill.adjustedDOR < result.trimFill.originalDOR) {
+          deeksHtml += ' <span style="color:var(--warning);font-size:0.82rem">Publication bias may inflate the pooled DOR.</span>';
+        }
+        deeksHtml += '</div>';
+      } else if (result.studyData && result.studyData.length >= 5 && result.trimFill && result.trimFill.k0 === 0) {
+        deeksHtml += '<div style="margin-top:10px;padding:10px;background:var(--surface);border-radius:var(--radius);border:1px solid var(--border)">';
+        deeksHtml += '<strong>Trim-and-Fill (Duval-Tweedie L0):</strong> No missing studies imputed (k0 = 0). The funnel plot appears symmetric.';
+        deeksHtml += '</div>';
       }
       deeksEl.innerHTML = deeksHtml;
       const funnelGridEl = document.getElementById('funnelPlotContainer');
@@ -9202,6 +9328,17 @@ body.dark-mode .input-error { background: #451a1a !important; }
         }
       }
       metaRegEl.innerHTML = mrHtml;
+    }
+
+    // RoB sensitivity analysis button
+    var robSensEl = document.getElementById('robSensitivityContainer');
+    if (robSensEl) {
+      var hasRoB = extractedStudies.some(function(s) { return s.rob && (s.rob.d1 || s.rob.d2 || s.rob.d3 || s.rob.d4); });
+      if (hasRoB) {
+        robSensEl.innerHTML = '<button class="btn-outline" onclick="runRoBSensitivityAnalysis()" style="margin-top:8px">\u26A0 Sensitivity: Exclude High-RoB Studies</button>';
+      } else {
+        robSensEl.innerHTML = '';
+      }
     }
 
     // ========== ADVANCED DTA FEATURES (auto-run) ==========
@@ -10403,6 +10540,156 @@ body.dark-mode .input-error { background: #451a1a !important; }
     }
     html += '</p>';
     return html;
+  }
+
+  // ============================================================
+  // ROB SENSITIVITY ANALYSIS (Exclude High-RoB Studies)
+  // ============================================================
+  function runRoBSensitivityAnalysis() {
+    if (!lastAnalysisResult) {
+      showToast('Run the main analysis first.', 'warning');
+      return;
+    }
+    var confLevel = lastAnalysisResult.confLevel ?? 0.95;
+    var confPct = Math.round(confLevel * 100);
+    // Determine method from stored result
+    var method = 'bivariate';
+    if (lastAnalysisResult.method === 'HSROC') method = 'hsroc';
+
+    // Filter studies: exclude any study where d1, d2, d3, or d4 is 'high'
+    var robDomainKeys = ['d1', 'd2', 'd3', 'd4'];
+    var allStudies = extractedStudies.filter(function(s) {
+      var tp = parseInt(s.tp), fp = parseInt(s.fp), fn = parseInt(s.fn), tn = parseInt(s.tn);
+      return [tp, fp, fn, tn].every(function(v) { return !isNaN(v) && v >= 0; });
+    });
+    var filtered = allStudies.filter(function(s) {
+      if (!s.rob) return true; // No RoB = keep (not assessed)
+      for (var i = 0; i < robDomainKeys.length; i++) {
+        if (s.rob[robDomainKeys[i]] === 'high') return false;
+      }
+      return true;
+    });
+
+    if (filtered.length < 2) {
+      showToast('Need at least 2 low/unclear-RoB studies for sensitivity analysis.', 'warning');
+      return;
+    }
+    if (filtered.length === allStudies.length) {
+      showToast('No high-RoB studies found — sensitivity analysis would be identical to the main analysis.', 'info');
+      return;
+    }
+
+    var sensResult = computeDTAAnalysis(filtered, confLevel, method);
+    if (!sensResult) {
+      showToast('Sensitivity analysis failed. Check study data.', 'warning');
+      return;
+    }
+
+    // Build comparison table
+    var fullR = lastAnalysisResult;
+    var sensR = sensResult;
+    var fullK = fullR.k ?? allStudies.length;
+    var sensK = sensR.k ?? filtered.length;
+
+    var fullSens = fullR.pooledSens ?? 0;
+    var fullSpec = fullR.pooledSpec ?? 0;
+    var fullDOR = fullR.dor ?? 0;
+    var sensSens = sensR.pooledSens ?? 0;
+    var sensSpec = sensR.pooledSpec ?? 0;
+    var sensDOR = sensR.dor ?? 0;
+
+    var fullHet = fullR.heterogeneity ?? {};
+    var sensHet = sensR.heterogeneity ?? {};
+    var fullI2s = fullHet.I2_sens ?? 0;
+    var fullI2p = fullHet.I2_spec ?? 0;
+    var sensI2s = sensHet.I2_sens ?? 0;
+    var sensI2p = sensHet.I2_spec ?? 0;
+
+    function fmtCI(val, ci, isPct) {
+      if (isPct) {
+        return (val * 100).toFixed(1) + '% [' +
+          (ci != null ? (ci[0] * 100).toFixed(1) + ', ' + (ci[1] * 100).toFixed(1) : '?, ?') + ']';
+      }
+      return val.toFixed(2) + ' [' +
+        (ci != null ? ci[0].toFixed(2) + ', ' + ci[1].toFixed(2) : '?, ?') + ']';
+    }
+
+    function changeCell(oldVal, newVal, higherIsBetter) {
+      var diff = newVal - oldVal;
+      var diffStr = (diff >= 0 ? '+' : '') + diff.toFixed(1);
+      var improved = higherIsBetter ? diff > 0.001 : diff < -0.001;
+      var worsened = higherIsBetter ? diff < -0.001 : diff > 0.001;
+      var color = improved ? 'var(--success)' : worsened ? 'var(--danger)' : 'var(--text-muted)';
+      return '<span style="color:' + color + ';font-weight:600">' + escapeHtml(diffStr) + (Math.abs(diff) > 0.001 ? '%' : '') + '</span>';
+    }
+
+    function changeCellAbs(oldVal, newVal, higherIsBetter) {
+      var diff = newVal - oldVal;
+      var diffStr = (diff >= 0 ? '+' : '') + diff.toFixed(2);
+      var improved = higherIsBetter ? diff > 0.001 : diff < -0.001;
+      var worsened = higherIsBetter ? diff < -0.001 : diff > 0.001;
+      var color = improved ? 'var(--success)' : worsened ? 'var(--danger)' : 'var(--text-muted)';
+      return '<span style="color:' + color + ';font-weight:600">' + escapeHtml(diffStr) + '</span>';
+    }
+
+    var excludedCount = allStudies.length - filtered.length;
+    var html = '<h3 style="font-size:0.95rem;margin-bottom:4px">Sensitivity Analysis: Exclude High Risk-of-Bias Studies</h3>';
+    html += '<p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:8px">' +
+      excludedCount + ' study(ies) excluded (any QUADAS-2 domain rated "high"). ' +
+      sensK + ' of ' + fullK + ' studies retained.</p>';
+
+    html += '<table style="width:100%;border-collapse:collapse;font-size:0.82rem">';
+    html += '<thead><tr style="border-bottom:2px solid var(--border)">';
+    html += '<th style="text-align:left;padding:6px">Metric</th>';
+    html += '<th style="text-align:center;padding:6px">Full Pool (k=' + fullK + ')</th>';
+    html += '<th style="text-align:center;padding:6px">Low/Unclear RoB (k=' + sensK + ')</th>';
+    html += '<th style="text-align:center;padding:6px">Change</th>';
+    html += '</tr></thead><tbody>';
+
+    // Pooled Sensitivity
+    html += '<tr style="border-bottom:1px solid var(--border)">';
+    html += '<td style="padding:6px">Pooled Sens</td>';
+    html += '<td style="text-align:center;padding:6px">' + fmtCI(fullSens, fullR.sensCI, true) + '</td>';
+    html += '<td style="text-align:center;padding:6px">' + fmtCI(sensSens, sensR.sensCI, true) + '</td>';
+    html += '<td style="text-align:center;padding:6px">' + changeCell(fullSens * 100, sensSens * 100, true) + '</td>';
+    html += '</tr>';
+
+    // Pooled Specificity
+    html += '<tr style="border-bottom:1px solid var(--border)">';
+    html += '<td style="padding:6px">Pooled Spec</td>';
+    html += '<td style="text-align:center;padding:6px">' + fmtCI(fullSpec, fullR.specCI, true) + '</td>';
+    html += '<td style="text-align:center;padding:6px">' + fmtCI(sensSpec, sensR.specCI, true) + '</td>';
+    html += '<td style="text-align:center;padding:6px">' + changeCell(fullSpec * 100, sensSpec * 100, true) + '</td>';
+    html += '</tr>';
+
+    // DOR
+    html += '<tr style="border-bottom:1px solid var(--border)">';
+    html += '<td style="padding:6px">DOR</td>';
+    html += '<td style="text-align:center;padding:6px">' + fmtCI(fullDOR, fullR.dorCI, false) + '</td>';
+    html += '<td style="text-align:center;padding:6px">' + fmtCI(sensDOR, sensR.dorCI, false) + '</td>';
+    html += '<td style="text-align:center;padding:6px">' + changeCellAbs(fullDOR, sensDOR, true) + '</td>';
+    html += '</tr>';
+
+    // I2 Sensitivity
+    html += '<tr style="border-bottom:1px solid var(--border)">';
+    html += '<td style="padding:6px">I\u00B2 Sens</td>';
+    html += '<td style="text-align:center;padding:6px">' + fullI2s.toFixed(1) + '%</td>';
+    html += '<td style="text-align:center;padding:6px">' + sensI2s.toFixed(1) + '%</td>';
+    html += '<td style="text-align:center;padding:6px">' + changeCell(fullI2s, sensI2s, false) + '</td>';
+    html += '</tr>';
+
+    // I2 Specificity
+    html += '<tr style="border-bottom:1px solid var(--border)">';
+    html += '<td style="padding:6px">I\u00B2 Spec</td>';
+    html += '<td style="text-align:center;padding:6px">' + fullI2p.toFixed(1) + '%</td>';
+    html += '<td style="text-align:center;padding:6px">' + sensI2p.toFixed(1) + '%</td>';
+    html += '<td style="text-align:center;padding:6px">' + changeCell(fullI2p, sensI2p, false) + '</td>';
+    html += '</tr>';
+
+    html += '</tbody></table>';
+
+    var container = document.getElementById('robSensitivityContainer');
+    if (container) container.innerHTML = html;
   }
 
   // ============================================================
@@ -17607,7 +17894,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
       (r.auc != null ? 'AUC: ' + r.auc.toFixed(3) + '\n' : '') +
       'I2 (Sens): ' + (r.heterogeneity?.I2_sens != null ? r.heterogeneity.I2_sens.toFixed(1) + '%' + (r.heterogeneity?.I2_sens_CI ? ' (' + r.heterogeneity.I2_sens_CI[0].toFixed(0) + ' to ' + r.heterogeneity.I2_sens_CI[1].toFixed(0) + '%)' : '') : (r.I2_sens != null ? r.I2_sens.toFixed(1) + '%' : 'N/A')) +
       ', I2 (Spec): ' + (r.heterogeneity?.I2_spec != null ? r.heterogeneity.I2_spec.toFixed(1) + '%' + (r.heterogeneity?.I2_spec_CI ? ' (' + r.heterogeneity.I2_spec_CI[0].toFixed(0) + ' to ' + r.heterogeneity.I2_spec_CI[1].toFixed(0) + '%)' : '') : (r.I2_spec != null ? r.I2_spec.toFixed(1) + '%' : 'N/A')) + '\n' +
-      (r.youdenJ != null ? 'Youden J: ' + r.youdenJ.toFixed(3) + ', NND: ' + (r.youdenJ > 0 ? (1 / r.youdenJ).toFixed(1) : 'N/A') + '\n' : '');
+      (r.youdenJ != null ? 'Youden J: ' + r.youdenJ.toFixed(3) + ', NND: ' + (r.youdenJ > 0 ? (1 / r.youdenJ).toFixed(1) : 'N/A') + '\n' : '') +
+      (r.trimFill && r.trimFill.k0 > 0 ? 'Trim-and-Fill (L0): ' + r.trimFill.k0 + ' imputed, adjusted DOR = ' + r.trimFill.adjustedDOR.toFixed(2) + ' (original = ' + r.trimFill.originalDOR.toFixed(2) + ')\n' : '');
     navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard', 'success'));
   }
 
