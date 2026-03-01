@@ -1930,8 +1930,15 @@ body.dark-mode .input-error { background: #451a1a !important; }
       function onCancel() { cleanup(false); }
       function onKey(e) {
         if (e.key === 'Escape') cleanup(false);
-        // Only confirm on Enter if the OK button is focused
         if (e.key === 'Enter' && document.activeElement === ok) cleanup(true);
+        // Focus trap: Tab cycles between OK and Cancel
+        if (e.key === 'Tab') {
+          const focusable = [ok, cancel];
+          const idx = focusable.indexOf(document.activeElement);
+          if (e.shiftKey) { focusable[(idx - 1 + focusable.length) % focusable.length].focus(); }
+          else { focusable[(idx + 1) % focusable.length].focus(); }
+          e.preventDefault();
+        }
       }
       ok.addEventListener('click', onOk);
       cancel.addEventListener('click', onCancel);
@@ -8541,10 +8548,10 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const xScale = v => plotLeft + v * plotW;
 
     let svg = '<svg viewBox="0 0 720 ' + h + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="' + label + ' forest plot" style="max-width:720px;width:100%;font-family:var(--font)">';
-    svg += '<text x="10" y="25" font-size="11" font-weight="bold">Study</text>';
-    svg += '<text x="' + (plotLeft + plotW / 2) + '" y="25" text-anchor="middle" font-size="11" font-weight="bold">' + label + ' (' + confPct + '% CI)</text>';
-    svg += '<text x="540" y="25" font-size="11" font-weight="bold">Wt</text>';
-    svg += '<text x="580" y="25" font-size="11" font-weight="bold">Est [CI]</text>';
+    svg += '<text x="10" y="25" font-size="11" font-weight="bold" fill="var(--text)">Study</text>';
+    svg += '<text x="' + (plotLeft + plotW / 2) + '" y="25" text-anchor="middle" font-size="11" font-weight="bold" fill="var(--text)">' + label + ' (' + confPct + '% CI)</text>';
+    svg += '<text x="540" y="25" font-size="11" font-weight="bold" fill="var(--text)">Wt</text>';
+    svg += '<text x="580" y="25" font-size="11" font-weight="bold" fill="var(--text)">Est [CI]</text>';
 
     studies.forEach((s, i) => {
       const y = headerH + i * rowH + rowH / 2;
@@ -8557,11 +8564,11 @@ body.dark-mode .input-error { background: #451a1a !important; }
       const x1 = xScale(Math.max(0, ci[0]));
       const x2 = xScale(Math.min(1, ci[1]));
       const size = Math.max(3, Math.min(10, Math.sqrt(parseFloat(wPct ?? 5)) * 2));
-      svg += '<text x="10" y="' + (y + 4) + '" font-size="10">' + escapeHtml((s.authorYear || s.author || '').slice(0, 28)) + '</text>';
+      svg += '<text x="10" y="' + (y + 4) + '" font-size="10" fill="var(--text)">' + escapeHtml((s.authorYear || s.author || '').slice(0, 28)) + '</text>';
       svg += '<line x1="' + x1 + '" y1="' + y + '" x2="' + x2 + '" y2="' + y + '" stroke="var(--primary)" stroke-width="1.5"/>';
       svg += '<rect x="' + (cx - size / 2) + '" y="' + (y - size / 2) + '" width="' + size + '" height="' + size + '" fill="var(--primary)"/>';
-      svg += '<text x="540" y="' + (y + 4) + '" font-size="9">' + (wPct ?? '-') + '%</text>';
-      svg += '<text x="580" y="' + (y + 4) + '" font-size="9">' + (val * 100).toFixed(1) + ' [' + (ci[0] * 100).toFixed(1) + ', ' + (ci[1] * 100).toFixed(1) + ']</text>';
+      svg += '<text x="540" y="' + (y + 4) + '" font-size="9" fill="var(--text-muted)">' + (wPct ?? '-') + '%</text>';
+      svg += '<text x="580" y="' + (y + 4) + '" font-size="9" fill="var(--text-muted)">' + (val * 100).toFixed(1) + ' [' + (ci[0] * 100).toFixed(1) + ', ' + (ci[1] * 100).toFixed(1) + ']</text>';
     });
 
     // Pooled diamond
@@ -8570,8 +8577,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const dlo = xScale(Math.max(0, pooledCI[0]));
     const dhi = xScale(Math.min(1, pooledCI[1]));
     svg += '<polygon points="' + dlo + ',' + dy + ' ' + dx + ',' + (dy - 8) + ' ' + dhi + ',' + dy + ' ' + dx + ',' + (dy + 8) + '" fill="var(--danger)" opacity="0.8"/>';
-    svg += '<text x="10" y="' + (dy + 4) + '" font-size="10" font-weight="bold">Pooled</text>';
-    svg += '<text x="580" y="' + (dy + 4) + '" font-size="9" font-weight="bold">' + (pooledVal * 100).toFixed(1) + ' [' + (pooledCI[0] * 100).toFixed(1) + ', ' + (pooledCI[1] * 100).toFixed(1) + ']</text>';
+    svg += '<text x="10" y="' + (dy + 4) + '" font-size="10" font-weight="bold" fill="var(--text)">Pooled</text>';
+    svg += '<text x="580" y="' + (dy + 4) + '" font-size="9" font-weight="bold" fill="var(--text)">' + (pooledVal * 100).toFixed(1) + ' [' + (pooledCI[0] * 100).toFixed(1) + ', ' + (pooledCI[1] * 100).toFixed(1) + ']</text>';
 
     // X-axis (0 to 100%)
     const axisY = headerH + k * rowH + 40;
@@ -8579,7 +8586,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     [0, 0.25, 0.5, 0.75, 1].forEach(v => {
       const tx = xScale(v);
       svg += '<line x1="' + tx + '" y1="' + axisY + '" x2="' + tx + '" y2="' + (axisY + 5) + '" stroke="var(--text)"/>';
-      svg += '<text x="' + tx + '" y="' + (axisY + 15) + '" text-anchor="middle" font-size="9">' + (v * 100) + '%</text>';
+      svg += '<text x="' + tx + '" y="' + (axisY + 15) + '" text-anchor="middle" font-size="9" fill="var(--text-muted)">' + (v * 100) + '%</text>';
     });
     svg += '</svg>';
     return svg;
@@ -8591,8 +8598,9 @@ body.dark-mode .input-error { background: #451a1a !important; }
   // ============================================================
   // SROC PLOT (SVG)
   // ============================================================
-  function renderSROCPlot(result) {
+  function renderSROCPlot(result, confLevel) {
     if (!result || !result.studyData) return '';
+    const _confLevel = confLevel ?? result.confLevel ?? 0.95;
     const w = 500, h = 500, pad = 50;
     const xScale = v => pad + (1 - v) * (w - 2 * pad); // 1-Spec on x-axis (FPR)
     const yScale = v => pad + (1 - v) * (h - 2 * pad); // Sens on y-axis
@@ -8621,12 +8629,12 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const showPred = document.getElementById('showPredRegionToggle')?.checked;
     if ((showConf || showPred) && result.mu1 !== undefined && result.mu2 !== undefined) {
       const mu1 = result.mu1, mu2 = result.mu2;
-      const se1 = result.seMu1 || 0.1, se2 = result.seMu2 || 0.1;
-      const cov12 = result.covMu12 || 0;
-      const tau1 = result.tau2_sens || 0, tau2 = result.tau2_spec || 0;
-      const rhoVal = result.rho || 0;
-      // chi2 quantile for df=2 at 95%: 5.991
-      const chi2_95_2 = 5.991;
+      const se1 = result.seMu1 ?? 0.1, se2 = result.seMu2 ?? 0.1;
+      const cov12 = result.covMu12 ?? 0;
+      const tau1 = result.tau2_sens ?? 0, tau2 = result.tau2_spec ?? 0;
+      const rhoVal = result.rho ?? 0;
+      // chi2 quantile for df=2 at confLevel (not hardcoded 95%)
+      const chi2_95_2 = chi2Quantile(_confLevel, 2);
 
       function drawEllipse(var1, var2, covVal, chiVal, color, dashArr) {
         // Ellipse in logit space, transformed to probability space
@@ -8706,8 +8714,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
     logDOR.forEach((ld, i) => {
       svg += '<circle cx="' + xScale(ld) + '" cy="' + yScale(sqrtESS[i]) + '" r="4" fill="var(--primary)" opacity="0.7"/>';
     });
-    svg += '<text x="' + (w / 2) + '" y="' + (h - 5) + '" text-anchor="middle" font-size="10">log(DOR)</text>';
-    svg += '<text x="12" y="' + (h / 2) + '" text-anchor="middle" font-size="10" transform="rotate(-90,12,' + (h / 2) + ')">sqrt(ESS)</text>';
+    svg += '<text x="' + (w / 2) + '" y="' + (h - 5) + '" text-anchor="middle" font-size="10" fill="var(--text)">log(DOR)</text>';
+    svg += '<text x="12" y="' + (h / 2) + '" text-anchor="middle" font-size="10" fill="var(--text)" transform="rotate(-90,12,' + (h / 2) + ')">sqrt(ESS)</text>';
     svg += '</svg>';
     return svg;
   }
@@ -8796,7 +8804,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
 
     // Render plots
     const srocEl = document.getElementById('srocPlotContainer');
-    if (srocEl) srocEl.innerHTML = renderSROCPlot(result);
+    if (srocEl) srocEl.innerHTML = renderSROCPlot(result, confLevel);
     const forestSensEl = document.getElementById('forestSensContainer');
     if (forestSensEl) forestSensEl.innerHTML = renderDTAForestPlot(result, 'sens');
     const forestSpecEl = document.getElementById('forestSpecContainer');
@@ -9029,22 +9037,22 @@ body.dark-mode .input-error { background: #451a1a !important; }
     }
 
     // Axes
-    svg += '<line x1="' + pad.left + '" y1="' + (H - pad.bottom) + '" x2="' + (W - pad.right) + '" y2="' + (H - pad.bottom) + '" stroke="#374151" stroke-width="1.5"/>';
-    svg += '<line x1="' + pad.left + '" y1="' + pad.top + '" x2="' + pad.left + '" y2="' + (H - pad.bottom) + '" stroke="#374151" stroke-width="1.5"/>';
+    svg += '<line x1="' + pad.left + '" y1="' + (H - pad.bottom) + '" x2="' + (W - pad.right) + '" y2="' + (H - pad.bottom) + '" stroke="var(--text)" stroke-width="1.5"/>';
+    svg += '<line x1="' + pad.left + '" y1="' + pad.top + '" x2="' + pad.left + '" y2="' + (H - pad.bottom) + '" stroke="var(--text)" stroke-width="1.5"/>';
 
     // Axis labels
-    svg += '<text x="' + (pad.left + pw / 2) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="12" fill="#374151">1 \u2212 Specificity (FPR)</text>';
-    svg += '<text x="14" y="' + (pad.top + ph / 2) + '" text-anchor="middle" font-size="12" fill="#374151" transform="rotate(-90,14,' + (pad.top + ph / 2) + ')">Sensitivity</text>';
+    svg += '<text x="' + (pad.left + pw / 2) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="12" fill="var(--text)">1 \u2212 Specificity (FPR)</text>';
+    svg += '<text x="14" y="' + (pad.top + ph / 2) + '" text-anchor="middle" font-size="12" fill="var(--text)" transform="rotate(-90,14,' + (pad.top + ph / 2) + ')">Sensitivity</text>';
 
     // Tick labels
     for (let t = 0; t <= 1; t += 0.2) {
       const tl = t.toFixed(1);
-      svg += '<text x="' + sx(t) + '" y="' + (H - pad.bottom + 16) + '" text-anchor="middle" font-size="10" fill="#6b7280">' + tl + '</text>';
-      svg += '<text x="' + (pad.left - 6) + '" y="' + (sy(t) + 3.5) + '" text-anchor="end" font-size="10" fill="#6b7280">' + tl + '</text>';
+      svg += '<text x="' + sx(t) + '" y="' + (H - pad.bottom + 16) + '" text-anchor="middle" font-size="10" fill="var(--text-muted)">' + tl + '</text>';
+      svg += '<text x="' + (pad.left - 6) + '" y="' + (sy(t) + 3.5) + '" text-anchor="end" font-size="10" fill="var(--text-muted)">' + tl + '</text>';
     }
 
     // Chance line (diagonal)
-    svg += '<line x1="' + sx(0) + '" y1="' + sy(0) + '" x2="' + sx(1) + '" y2="' + sy(1) + '" stroke="#9ca3af" stroke-width="1" stroke-dasharray="4,3"/>';
+    svg += '<line x1="' + sx(0) + '" y1="' + sy(0) + '" x2="' + sx(1) + '" y2="' + sy(1) + '" stroke="var(--border)" stroke-width="1" stroke-dasharray="4,3"/>';
 
     // Study crosshairs
     studies.forEach(s => {
@@ -9076,7 +9084,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     svg += '<text x="' + (dcx + dw + 4) + '" y="' + (dcy + 4) + '" font-size="9" fill="#991b1b">Pooled</text>';
 
     // Title
-    svg += '<text x="' + (W / 2) + '" y="18" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">Crosshairs Plot (ROC Space)</text>';
+    svg += '<text x="' + (W / 2) + '" y="18" text-anchor="middle" font-size="13" font-weight="600" fill="var(--text)">Crosshairs Plot (ROC Space)</text>';
     svg += '</svg>';
 
     container.innerHTML = '<h4 style="margin-bottom:8px">Crosshairs Plot</h4>' + svg +
@@ -9105,18 +9113,18 @@ body.dark-mode .input-error { background: #451a1a !important; }
     }
 
     // Axes
-    svg += '<line x1="' + pad.left + '" y1="' + (H - pad.bottom) + '" x2="' + (W - pad.right) + '" y2="' + (H - pad.bottom) + '" stroke="#374151" stroke-width="1.5"/>';
-    svg += '<line x1="' + pad.left + '" y1="' + pad.top + '" x2="' + pad.left + '" y2="' + (H - pad.bottom) + '" stroke="#374151" stroke-width="1.5"/>';
+    svg += '<line x1="' + pad.left + '" y1="' + (H - pad.bottom) + '" x2="' + (W - pad.right) + '" y2="' + (H - pad.bottom) + '" stroke="var(--text)" stroke-width="1.5"/>';
+    svg += '<line x1="' + pad.left + '" y1="' + pad.top + '" x2="' + pad.left + '" y2="' + (H - pad.bottom) + '" stroke="var(--text)" stroke-width="1.5"/>';
 
     // Axis labels
-    svg += '<text x="' + (pad.left + pw / 2) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="12" fill="#374151">Specificity</text>';
-    svg += '<text x="14" y="' + (pad.top + ph / 2) + '" text-anchor="middle" font-size="12" fill="#374151" transform="rotate(-90,14,' + (pad.top + ph / 2) + ')">Sensitivity</text>';
+    svg += '<text x="' + (pad.left + pw / 2) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="12" fill="var(--text)">Specificity</text>';
+    svg += '<text x="14" y="' + (pad.top + ph / 2) + '" text-anchor="middle" font-size="12" fill="var(--text)" transform="rotate(-90,14,' + (pad.top + ph / 2) + ')">Sensitivity</text>';
 
     // Tick labels
     for (let t = 0; t <= 1; t += 0.2) {
       const tl = t.toFixed(1);
-      svg += '<text x="' + sx(t) + '" y="' + (H - pad.bottom + 16) + '" text-anchor="middle" font-size="10" fill="#6b7280">' + tl + '</text>';
-      svg += '<text x="' + (pad.left - 6) + '" y="' + (sy(t) + 3.5) + '" text-anchor="end" font-size="10" fill="#6b7280">' + tl + '</text>';
+      svg += '<text x="' + sx(t) + '" y="' + (H - pad.bottom + 16) + '" text-anchor="middle" font-size="10" fill="var(--text-muted)">' + tl + '</text>';
+      svg += '<text x="' + (pad.left - 6) + '" y="' + (sy(t) + 3.5) + '" text-anchor="end" font-size="10" fill="var(--text-muted)">' + tl + '</text>';
     }
 
     // Iso-DOR curves: sens = (dor * spec) / (1 - spec + dor * spec)
@@ -9156,7 +9164,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     svg += '<text x="' + (dcx + dw + 4) + '" y="' + (dcy + 4) + '" font-size="9" fill="#991b1b">Pooled</text>';
 
     // Title
-    svg += '<text x="' + (W / 2) + '" y="18" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">L\'Abb\u00e9 Plot</text>';
+    svg += '<text x="' + (W / 2) + '" y="18" text-anchor="middle" font-size="13" font-weight="600" fill="var(--text)">L\'Abb\u00e9 Plot</text>';
     svg += '</svg>';
 
     container.innerHTML = '<h4 style="margin-bottom:8px">L\u2019Abb\u00e9 Plot</h4>' + svg +
@@ -9210,24 +9218,24 @@ body.dark-mode .input-error { background: #451a1a !important; }
     svg += '<line x1="' + pad.left + '" y1="' + sy(0) + '" x2="' + (W - pad.right) + '" y2="' + sy(0) + '" stroke="#e5e7eb" stroke-width="0.5"/>';
 
     // Axes
-    svg += '<line x1="' + pad.left + '" y1="' + (H - pad.bottom) + '" x2="' + (W - pad.right) + '" y2="' + (H - pad.bottom) + '" stroke="#374151" stroke-width="1.5"/>';
-    svg += '<line x1="' + pad.left + '" y1="' + pad.top + '" x2="' + pad.left + '" y2="' + (H - pad.bottom) + '" stroke="#374151" stroke-width="1.5"/>';
+    svg += '<line x1="' + pad.left + '" y1="' + (H - pad.bottom) + '" x2="' + (W - pad.right) + '" y2="' + (H - pad.bottom) + '" stroke="var(--text)" stroke-width="1.5"/>';
+    svg += '<line x1="' + pad.left + '" y1="' + pad.top + '" x2="' + pad.left + '" y2="' + (H - pad.bottom) + '" stroke="var(--text)" stroke-width="1.5"/>';
 
     // Axis labels
-    svg += '<text x="' + (pad.left + pw / 2) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="12" fill="#374151">Precision (1/SE)</text>';
-    svg += '<text x="14" y="' + (pad.top + ph / 2) + '" text-anchor="middle" font-size="12" fill="#374151" transform="rotate(-90,14,' + (pad.top + ph / 2) + ')">Standardized ln(DOR)</text>';
+    svg += '<text x="' + (pad.left + pw / 2) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="12" fill="var(--text)">Precision (1/SE)</text>';
+    svg += '<text x="14" y="' + (pad.top + ph / 2) + '" text-anchor="middle" font-size="12" fill="var(--text)" transform="rotate(-90,14,' + (pad.top + ph / 2) + ')">Standardized ln(DOR)</text>';
 
     // Tick labels on x-axis
     const xStep = Math.max(1, Math.round(xMax / 5));
     for (let t = 0; t <= xMax; t += xStep) {
-      svg += '<text x="' + sx(t) + '" y="' + (H - pad.bottom + 16) + '" text-anchor="middle" font-size="10" fill="#6b7280">' + t.toFixed(0) + '</text>';
-      svg += '<line x1="' + sx(t) + '" y1="' + (H - pad.bottom) + '" x2="' + sx(t) + '" y2="' + (H - pad.bottom + 4) + '" stroke="#6b7280" stroke-width="1"/>';
+      svg += '<text x="' + sx(t) + '" y="' + (H - pad.bottom + 16) + '" text-anchor="middle" font-size="10" fill="var(--text-muted)">' + t.toFixed(0) + '</text>';
+      svg += '<line x1="' + sx(t) + '" y1="' + (H - pad.bottom) + '" x2="' + sx(t) + '" y2="' + (H - pad.bottom + 4) + '" stroke="var(--text-muted)" stroke-width="1"/>';
     }
     // Tick labels on y-axis
     const yStep = Math.max(1, Math.round(yAbsMax / 3));
     for (let t = -Math.floor(yAbsMax); t <= Math.floor(yAbsMax); t += yStep) {
-      svg += '<text x="' + (pad.left - 6) + '" y="' + (sy(t) + 3.5) + '" text-anchor="end" font-size="10" fill="#6b7280">' + t + '</text>';
-      svg += '<line x1="' + (pad.left - 3) + '" y1="' + sy(t) + '" x2="' + pad.left + '" y2="' + sy(t) + '" stroke="#6b7280" stroke-width="1"/>';
+      svg += '<text x="' + (pad.left - 6) + '" y="' + (sy(t) + 3.5) + '" text-anchor="end" font-size="10" fill="var(--text-muted)">' + t + '</text>';
+      svg += '<line x1="' + (pad.left - 3) + '" y1="' + sy(t) + '" x2="' + pad.left + '" y2="' + sy(t) + '" stroke="var(--text-muted)" stroke-width="1"/>';
     }
 
     // Regression line through origin (slope = pooled logDOR)
@@ -9253,7 +9261,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     });
 
     // Title
-    svg += '<text x="' + (W / 2) + '" y="18" text-anchor="middle" font-size="13" font-weight="600" fill="#1f2937">Galbraith (Radial) Plot</text>';
+    svg += '<text x="' + (W / 2) + '" y="18" text-anchor="middle" font-size="13" font-weight="600" fill="var(--text)">Galbraith (Radial) Plot</text>';
     svg += '</svg>';
 
     let note = '<p style="font-size:0.78rem;color:var(--text-muted);margin-top:4px">Regression line slope = FE pooled ln(DOR) = ' + pooledLnDOR.toFixed(3) + '. Dashed lines = \u00b11.96 bands. Points outside bands suggest heterogeneity.</p>';
@@ -9783,7 +9791,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
         'FP <- c(' + studies.map(s => s.fp).join(', ') + ')\\n' +
         'FN <- c(' + studies.map(s => s.fn).join(', ') + ')\\n' +
         'TN <- c(' + studies.map(s => s.tn).join(', ') + ')\\n' +
-        'labels <- c(' + studies.map(s => '"' + (s.authorYear || s.trialId || '').replace(/"/g, '') + '"').join(', ') + ')\\n\\n' +
+        'labels <- c(' + studies.map(s => '"' + (s.authorYear || s.trialId || '').replace(/["\\\n\r]/g, '') + '"').join(', ') + ')\\n\\n' +
         '# Bivariate model (Reitsma)\\n' +
         'fit <- reitsma(data.frame(TP=TP, FP=FP, FN=FN, TN=TN))\\n' +
         'summary(fit)\\n\\n' +
@@ -9879,17 +9887,17 @@ body.dark-mode .input-error { background: #451a1a !important; }
     let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="max-width:400px;width:100%;font-family:sans-serif" xmlns="http://www.w3.org/2000/svg">';
 
     // Three vertical axis lines
-    svg += '<line x1="' + xLeft + '" y1="' + pad.top + '" x2="' + xLeft + '" y2="' + (H - pad.bottom) + '" stroke="#374151" stroke-width="1.5"/>';
-    svg += '<line x1="' + xMid + '" y1="' + pad.top + '" x2="' + xMid + '" y2="' + (H - pad.bottom) + '" stroke="#374151" stroke-width="1.5"/>';
-    svg += '<line x1="' + xRight + '" y1="' + pad.top + '" x2="' + xRight + '" y2="' + (H - pad.bottom) + '" stroke="#374151" stroke-width="1.5"/>';
+    svg += '<line x1="' + xLeft + '" y1="' + pad.top + '" x2="' + xLeft + '" y2="' + (H - pad.bottom) + '" stroke="var(--text)" stroke-width="1.5"/>';
+    svg += '<line x1="' + xMid + '" y1="' + pad.top + '" x2="' + xMid + '" y2="' + (H - pad.bottom) + '" stroke="var(--text)" stroke-width="1.5"/>';
+    svg += '<line x1="' + xRight + '" y1="' + pad.top + '" x2="' + xRight + '" y2="' + (H - pad.bottom) + '" stroke="var(--text)" stroke-width="1.5"/>';
 
     // Axis titles
-    svg += '<text x="' + xLeft + '" y="' + (pad.top - 10) + '" text-anchor="middle" font-size="10" font-weight="600" fill="#374151">Pre-test</text>';
-    svg += '<text x="' + xLeft + '" y="' + (H - pad.bottom + 16) + '" text-anchor="middle" font-size="9" fill="#6b7280">Probability</text>';
-    svg += '<text x="' + xMid + '" y="' + (pad.top - 10) + '" text-anchor="middle" font-size="10" font-weight="600" fill="#374151">Likelihood</text>';
-    svg += '<text x="' + xMid + '" y="' + (H - pad.bottom + 16) + '" text-anchor="middle" font-size="9" fill="#6b7280">Ratio</text>';
-    svg += '<text x="' + xRight + '" y="' + (pad.top - 10) + '" text-anchor="middle" font-size="10" font-weight="600" fill="#374151">Post-test</text>';
-    svg += '<text x="' + xRight + '" y="' + (H - pad.bottom + 16) + '" text-anchor="middle" font-size="9" fill="#6b7280">Probability</text>';
+    svg += '<text x="' + xLeft + '" y="' + (pad.top - 10) + '" text-anchor="middle" font-size="10" font-weight="600" fill="var(--text)">Pre-test</text>';
+    svg += '<text x="' + xLeft + '" y="' + (H - pad.bottom + 16) + '" text-anchor="middle" font-size="9" fill="var(--text-muted)">Probability</text>';
+    svg += '<text x="' + xMid + '" y="' + (pad.top - 10) + '" text-anchor="middle" font-size="10" font-weight="600" fill="var(--text)">Likelihood</text>';
+    svg += '<text x="' + xMid + '" y="' + (H - pad.bottom + 16) + '" text-anchor="middle" font-size="9" fill="var(--text-muted)">Ratio</text>';
+    svg += '<text x="' + xRight + '" y="' + (pad.top - 10) + '" text-anchor="middle" font-size="10" font-weight="600" fill="var(--text)">Post-test</text>';
+    svg += '<text x="' + xRight + '" y="' + (H - pad.bottom + 16) + '" text-anchor="middle" font-size="9" fill="var(--text-muted)">Probability</text>';
 
     // Tick marks on left (pre-test probability) and right (post-test probability)
     const probTicks = [0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99];
@@ -9897,11 +9905,11 @@ body.dark-mode .input-error { background: #451a1a !important; }
       const y = probToY(p);
       const label = p < 0.1 ? (p * 100).toFixed(0) : (p * 100).toFixed(0);
       // Left axis ticks
-      svg += '<line x1="' + (xLeft - 4) + '" y1="' + y + '" x2="' + xLeft + '" y2="' + y + '" stroke="#374151" stroke-width="1"/>';
-      svg += '<text x="' + (xLeft - 7) + '" y="' + (y + 3.5) + '" text-anchor="end" font-size="8" fill="#6b7280">' + label + '%</text>';
+      svg += '<line x1="' + (xLeft - 4) + '" y1="' + y + '" x2="' + xLeft + '" y2="' + y + '" stroke="var(--text-muted)" stroke-width="1"/>';
+      svg += '<text x="' + (xLeft - 7) + '" y="' + (y + 3.5) + '" text-anchor="end" font-size="8" fill="var(--text-muted)">' + label + '%</text>';
       // Right axis ticks
-      svg += '<line x1="' + xRight + '" y1="' + y + '" x2="' + (xRight + 4) + '" y2="' + y + '" stroke="#374151" stroke-width="1"/>';
-      svg += '<text x="' + (xRight + 7) + '" y="' + (y + 3.5) + '" text-anchor="start" font-size="8" fill="#6b7280">' + label + '%</text>';
+      svg += '<line x1="' + xRight + '" y1="' + y + '" x2="' + (xRight + 4) + '" y2="' + y + '" stroke="var(--text-muted)" stroke-width="1"/>';
+      svg += '<text x="' + (xRight + 7) + '" y="' + (y + 3.5) + '" text-anchor="start" font-size="8" fill="var(--text-muted)">' + label + '%</text>';
     });
 
     // Tick marks on center (likelihood ratio)
@@ -9909,8 +9917,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
     lrTicks.forEach(lr => {
       const y = lrToY(lr);
       const label = lr < 1 ? lr.toFixed(2).replace(/0+$/, '').replace(/\.$/, '') : lr.toFixed(0);
-      svg += '<line x1="' + (xMid - 4) + '" y1="' + y + '" x2="' + (xMid + 4) + '" y2="' + y + '" stroke="#374151" stroke-width="1"/>';
-      svg += '<text x="' + (xMid - 7) + '" y="' + (y + 3.5) + '" text-anchor="end" font-size="8" fill="#6b7280">' + label + '</text>';
+      svg += '<line x1="' + (xMid - 4) + '" y1="' + y + '" x2="' + (xMid + 4) + '" y2="' + y + '" stroke="var(--text-muted)" stroke-width="1"/>';
+      svg += '<text x="' + (xMid - 7) + '" y="' + (y + 3.5) + '" text-anchor="end" font-size="8" fill="var(--text-muted)">' + label + '</text>';
     });
 
     // Clamp LR for display
@@ -10482,7 +10490,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
       : 'No registry match';
     const sourceTag = ((trial?.source || '').toLowerCase() === 'aact') ? 'aact' : 'ctgov';
     const enroll = trial?.enrollment ?? null;
-    const nTotal = (study.nTotal ?? ((study.totalInt ?? 0) + (study.totalCtrl ?? 0))) || null;
+    const _nTotalRaw = study.nTotal ?? ((study.totalInt ?? 0) + (study.totalCtrl ?? 0));
+    const nTotal = _nTotalRaw > 0 ? _nTotalRaw : null;
     const nMismatch = (enroll != null && nTotal != null && Math.abs(enroll - nTotal) > Math.max(20, enroll * 0.1));
     const trialOutcomesRaw = (trial?.primaryOutcomes || []).map(o => String(o || '').trim()).filter(Boolean);
     const trialOutcomes = trialOutcomesRaw.map(o => o.toLowerCase());
@@ -13230,6 +13239,26 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const hint = document.getElementById('universeOnboardHint');
     if (hint) hint.style.display = 'block';
   }
+
+  // Arrow-key navigation for universe view-tab bar (WAI-ARIA tablist pattern)
+  (function() {
+    const viewTabBar = document.getElementById('universeViewTabs');
+    if (!viewTabBar) return;
+    viewTabBar.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Home' && e.key !== 'End') return;
+      const tabs = Array.from(viewTabBar.querySelectorAll('[role="tab"]'));
+      const idx = tabs.indexOf(e.target);
+      if (idx < 0) return;
+      e.preventDefault();
+      let next;
+      if (e.key === 'ArrowRight') next = (idx + 1) % tabs.length;
+      else if (e.key === 'ArrowLeft') next = (idx - 1 + tabs.length) % tabs.length;
+      else if (e.key === 'Home') next = 0;
+      else if (e.key === 'End') next = tabs.length - 1;
+      tabs[next].focus();
+      switchUniverseView(tabs[next].dataset.view);
+    });
+  })();
 
   // ============================================================
   // AYAT UNIVERSE — Information-Dense Evidence Landscape (Canvas)
@@ -17431,7 +17460,9 @@ body.dark-mode .input-error { background: #451a1a !important; }
 
       safeSetStorage(TRUTHCERT_BRIDGE_STORAGE_KEY, JSON.stringify(envelope));
 
-      const truthCertUrl = safeGetStorage('msa-dta-truthcert-url', DEFAULT_TRUTHCERT_URL) || DEFAULT_TRUTHCERT_URL;
+      const _rawTCUrl = safeGetStorage('msa-dta-truthcert-url', DEFAULT_TRUTHCERT_URL) || DEFAULT_TRUTHCERT_URL;
+      let truthCertUrl = DEFAULT_TRUTHCERT_URL;
+      try { const u = new URL(_rawTCUrl); if (u.protocol === 'https:' || u.protocol === 'http:') truthCertUrl = _rawTCUrl; } catch(_) {}
       const child = window.open(truthCertUrl, 'metasprint_truthcert_bridge');
       if (!child) {
         showToast('Popup blocked. Allow popups, then open TruthCert manually to consume bridge payload.', 'warning', 6000);
@@ -17439,7 +17470,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
       }
 
       let attempts = 0;
-      const _tcTargetOrigin = (() => { try { return new URL(truthCertUrl).origin; } catch(_) { return '*'; } })();
+      const _tcTargetOrigin = (() => { try { return new URL(truthCertUrl).origin; } catch(_) { return new URL(DEFAULT_TRUTHCERT_URL).origin; } })();
       const pushMessage = () => {
         attempts += 1;
         try { child.postMessage(envelope, _tcTargetOrigin); } catch (_) {}
@@ -17525,7 +17556,11 @@ body.dark-mode .input-error { background: #451a1a !important; }
   // ============================================================
   // RCT EXTRACTOR INTEGRATION (optional, localhost:8000)
   // ============================================================
-  const EXTRACTOR_URL = (safeGetStorage('msa-dta-extractor-url', 'http://localhost:8000') || 'http://localhost:8000').replace(/\/+$/, '');
+  const EXTRACTOR_URL = (() => {
+    const _raw = safeGetStorage('msa-dta-extractor-url', 'http://localhost:8000') || 'http://localhost:8000';
+    try { const u = new URL(_raw); if (u.protocol === 'https:' || u.protocol === 'http:') return _raw.replace(/\/+$/, ''); } catch(_) {}
+    return 'http://localhost:8000';
+  })();
   const EXTRACTOR_MIN_CONFIDENCE = 0.70;
   const CARDIO_REGISTRY_ONLY_MODE = true;
   const DISABLE_PDF_UPLOAD_MODE = true;
@@ -17855,6 +17890,24 @@ body.dark-mode .input-error { background: #451a1a !important; }
         switchInsightsSubTab(btn.dataset.insight);
       });
     });
+    // Arrow-key navigation for insights sub-tab bar (WAI-ARIA tablist pattern)
+    const insightsNav = document.querySelector('.insights-nav');
+    if (insightsNav) {
+      insightsNav.addEventListener('keydown', (e) => {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Home' && e.key !== 'End') return;
+        const tabs = Array.from(insightsNav.querySelectorAll('[role="tab"]'));
+        const idx = tabs.indexOf(e.target);
+        if (idx < 0) return;
+        e.preventDefault();
+        let next;
+        if (e.key === 'ArrowRight') next = (idx + 1) % tabs.length;
+        else if (e.key === 'ArrowLeft') next = (idx - 1 + tabs.length) % tabs.length;
+        else if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = tabs.length - 1;
+        tabs[next].focus();
+        switchInsightsSubTab(tabs[next].dataset.insight);
+      });
+    }
     // Initialize the active sub-tab
     switchInsightsSubTab(_currentInsightTab);
   }
@@ -17915,11 +17968,11 @@ body.dark-mode .input-error { background: #451a1a !important; }
       I2_spec: het.I2_spec ?? 0,
       tau2_sens: het.tau2_sens ?? 0,
       tau2_spec: het.tau2_spec ?? 0,
-      rho: r.deeks?.rho ?? het.rho ?? null,
+      rho: r.rho ?? het.rho ?? null,
       deeksP: r.deeks?.pValue ?? null,
       auc: r.auc ?? null,
       k: r.k ?? 0,
-      studies: r.studies ?? [],
+      studies: r.studyData ?? [],
       method: r.method ?? 'bivariate'
     };
   }
@@ -17934,13 +17987,13 @@ body.dark-mode .input-error { background: #451a1a !important; }
       I2: r.heterogeneity?.I2_sens ?? r.I2 ?? null,
       tau2: r.heterogeneity?.tau2_sens ?? r.tau2 ?? 0,
       pEgger: r.deeks?.pValue ?? null,
-      ciWidth: r.pooledSensCI ? (r.pooledSensCI[1] - r.pooledSensCI[0]) : null,
+      ciWidth: r.sensCI ? (r.sensCI[1] - r.sensCI[0]) : null,
       k: r.k ?? 0,
       pooledCI: r.dorCI ?? [null, null],
       NNT: r.nnd ?? null,
       NNH: null,
       isRatio: true,
-      studies: r.studies ?? [],
+      studies: r.studyData ?? [],
       pooledSens: r.pooledSens,
       pooledSpec: r.pooledSpec,
       dor: r.dor,
@@ -19142,12 +19195,12 @@ body.dark-mode .input-error { background: #451a1a !important; }
         response = '<strong>Threshold Effect</strong><br>';
         if (dtaData.rho !== null) {
           const absRho = Math.abs(dtaData.rho);
-          response += 'Spearman correlation between logit(Sens) and logit(1\u2212Spec): <strong>\u03C1 = ' + dtaData.rho.toFixed(3) + '</strong><br>';
+          response += 'Bivariate model correlation between logit(Sens) and logit(Spec): <strong>\u03C1 = ' + dtaData.rho.toFixed(3) + '</strong><br>';
           response += absRho > 0.6 ? '<span style="color:var(--warning)">Evidence of threshold effect</span> \u2014 studies appear to trade sensitivity for specificity at different cut-off values.' :
             absRho > 0.3 ? '<span style="color:var(--text-muted)">Weak evidence of threshold effect</span> \u2014 modest correlation between sensitivity and specificity trade-offs.' :
             '<span style="color:var(--success)">No evidence of threshold effect</span> \u2014 variations between studies are not driven by cut-off differences.';
         } else {
-          response += 'Spearman correlation not available.';
+          response += 'Bivariate model correlation not available (requires bivariate pooling with k \u2265 3).';
         }
         if (dtaData.auc !== null) {
           response += '<br>SROC AUC: <strong>' + dtaData.auc.toFixed(3) + '</strong>.';
@@ -19156,10 +19209,9 @@ body.dark-mode .input-error { background: #451a1a !important; }
         response = '<strong>Area Under the SROC Curve (AUC)</strong><br>';
         if (dtaData.auc !== null) {
           const aucV = dtaData.auc;
-          const aucInterp = aucV > 0.97 ? 'excellent' : aucV > 0.93 ? 'very good' : aucV > 0.75 ? 'good' : aucV > 0.5 ? 'fair' : 'poor';
+          const aucInterp = aucV > 0.90 ? 'excellent' : aucV > 0.80 ? 'good' : aucV > 0.70 ? 'fair' : 'poor';
           response += 'AUC = <strong>' + aucV.toFixed(3) + '</strong> (' + aucInterp + ')<br>';
-          response += aucInterp === 'excellent' ? 'The test discriminates extremely well between diseased and non-diseased individuals.' :
-            aucInterp === 'very good' ? 'The test has very good overall discriminatory ability.' :
+          response += aucInterp === 'excellent' ? 'The test discriminates very well between diseased and non-diseased individuals.' :
             aucInterp === 'good' ? 'The test has good discriminatory ability, though some overlap exists.' :
             aucInterp === 'fair' ? 'The test has limited discriminatory ability; clinical utility may be questionable.' :
             'The test performs poorly; consider alternative diagnostic strategies.';
@@ -19539,8 +19591,10 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const logitSensHi = _logit(Math.max(0.001, Math.min(0.999, dtaData.sensCI[1])));
     const logitSpecLo = _logit(Math.max(0.001, Math.min(0.999, dtaData.specCI[0])));
     const logitSpecHi = _logit(Math.max(0.001, Math.min(0.999, dtaData.specCI[1])));
-    const seSens = (logitSensHi - logitSensLo) / (2 * 1.96);
-    const seSpec = (logitSpecHi - logitSpecLo) / (2 * 1.96);
+    const _confLevel = (typeof lastAnalysisResult !== 'undefined' && lastAnalysisResult?.confLevel) ? lastAnalysisResult.confLevel : 0.95;
+    const _zCritQDP = normalQuantile(1 - (1 - _confLevel) / 2);
+    const seSens = (logitSensHi - logitSensLo) / (2 * _zCritQDP);
+    const seSpec = (logitSpecHi - logitSpecLo) / (2 * _zCritQDP);
 
     const nDots = 20;
     const sensDots = [];
@@ -19793,22 +19847,32 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const isRatio = ['OR','RR','HR'].includes(effectType);
     const nullLine = isRatio ? 1 : 0;
 
-    // Cumulative meta-analysis
+    // Cumulative meta-analysis (DL random-effects)
     const cumResults = [];
+    const _zCritCum = normalQuantile(1 - (1 - (analysis.confLevel ?? 0.95)) / 2);
     for (let k = 2; k <= withYear.length; k++) {
       const subset = withYear.slice(0, k);
       const yi = subset.map(s => isRatio ? Math.log(s.effect ?? 1) : (s.effect ?? 0));
       const sei = subset.map(s => s.sei ?? 0.5);
-      const wi = sei.map(se => 1 / (se * se));
+      const vi = sei.map(se => se * se);
+      const wi = vi.map(v => 1 / v);
       const sumW = wi.reduce((a, b) => a + b, 0);
-      const mu = wi.reduce((s, w, i) => s + w * yi[i], 0) / sumW;
-      const se = Math.sqrt(1 / sumW);
+      const muFE = wi.reduce((s, w, i) => s + w * yi[i], 0) / sumW;
+      // DL tau² estimation
+      const Q = wi.reduce((s, w, i) => s + w * (yi[i] - muFE) ** 2, 0);
+      const c = sumW - wi.reduce((s, w) => s + w * w, 0) / sumW;
+      const tau2 = Math.max(0, (Q - (k - 1)) / (c || 1));
+      // RE weights
+      const wiRE = vi.map(v => 1 / (v + tau2));
+      const sumWRE = wiRE.reduce((a, b) => a + b, 0);
+      const mu = wiRE.reduce((s, w, i) => s + w * yi[i], 0) / sumWRE;
+      const se = Math.sqrt(1 / sumWRE);
       cumResults.push({
         year: subset[subset.length - 1].year,
         k: k,
         pooled: isRatio ? Math.exp(mu) : mu,
-        lo: isRatio ? Math.exp(mu - 1.96 * se) : mu - 1.96 * se,
-        hi: isRatio ? Math.exp(mu + 1.96 * se) : mu + 1.96 * se,
+        lo: isRatio ? Math.exp(mu - _zCritCum * se) : mu - _zCritCum * se,
+        hi: isRatio ? Math.exp(mu + _zCritCum * se) : mu + _zCritCum * se,
       });
     }
 
