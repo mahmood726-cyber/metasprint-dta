@@ -494,11 +494,13 @@ body.dark-mode #clinicalDisclaimer button { border-color: #fbbf24 !important; co
   overflow-x: auto; margin-bottom: 16px;
 }
 .insights-tab {
-  padding: 8px 14px; background: none; color: var(--text-muted);
+  padding: 6px 12px; background: none; color: var(--text-muted);
   border: none; border-right: 1px solid var(--border);
   font-size: 0.78rem; white-space: nowrap; border-radius: 0;
   transition: color 0.15s, background 0.15s; cursor: pointer;
+  text-align: center; line-height: 1.2;
 }
+.insight-tab-label { white-space: normal; display: inline-block; }
 .insights-tab:last-child { border-right: none; }
 .insights-tab:hover { background: var(--bg); color: var(--text); }
 .insights-tab.active { background: var(--primary); color: #fff; font-weight: 600; }
@@ -1556,17 +1558,17 @@ body.dark-mode .input-error { background: #451a1a !important; }
       <h2>Evidence Insights</h2>
       <p class="text-muted" style="margin-bottom:12px">Deep evidence analysis inspired by Quranic epistemological principles. Select a sub-tab to explore.</p>
       <div class="insights-nav" role="tablist" aria-label="Insight sub-tabs">
-        <button class="insights-tab active" data-insight="tawakkul" role="tab" aria-selected="true" title="Trust Decomposition: 8-axis radar of evidence trustworthiness">Tawakkul</button>
-        <button class="insights-tab" data-insight="mizan" role="tab" aria-selected="false" title="Harm-Benefit Equipoise: Balance-scale visualization">Mizan</button>
-        <button class="insights-tab" data-insight="shura" role="tab" aria-selected="false" title="Multiverse Specification Curve: Sensitivity to analytic choices">Shura</button>
-        <button class="insights-tab" data-insight="hikmah" role="tab" aria-selected="false" title="Clinical Decision Context: Personalized NNT calculator">Hikmah</button>
-        <button class="insights-tab" data-insight="fitrah" role="tab" aria-selected="false" title="Natural Query Interface: Ask questions in plain language">Fitrah</button>
-        <button class="insights-tab" data-insight="ihsan" role="tab" aria-selected="false" title="Excellence Visualization: Icon arrays, quantile dots, timelines">Ihsan</button>
-        <button class="insights-tab" data-insight="amanah" role="tab" aria-selected="false" title="Evidence Gap Registry: Structured gap accountability">Amanah</button>
-        <button class="insights-tab" data-insight="taqwa" role="tab" aria-selected="false" title="Integrity Sentinel: GRIM test, retraction checks, funding bias">Taqwa</button>
-        <button class="insights-tab" data-insight="dhulm" role="tab" aria-selected="false" title="Health Equity Detector: Representation justice analysis">Dhulm</button>
-        <button class="insights-tab" data-insight="rahma" role="tab" aria-selected="false" title="Patient-Facing Translation: Plain-language summaries">Rahma</button>
-        <button class="insights-tab" data-insight="tabayyun" role="tab" aria-selected="false" title="Verification Engine: Cross-source verification states (49:6)">Tabayyun</button>
+        <button class="insights-tab active" data-insight="tawakkul" role="tab" aria-selected="true" title="Trust Decomposition: 8-axis radar of evidence trustworthiness"><span class="insight-tab-label"><strong>Tawakkul</strong><br><span style="font-size:0.65rem;opacity:0.7">Trust</span></span></button>
+        <button class="insights-tab" data-insight="mizan" role="tab" aria-selected="false" title="Harm-Benefit Equipoise: Balance-scale visualization"><span class="insight-tab-label"><strong>Mizan</strong><br><span style="font-size:0.65rem;opacity:0.7">Balance</span></span></button>
+        <button class="insights-tab" data-insight="shura" role="tab" aria-selected="false" title="Multiverse Specification Curve: Sensitivity to analytic choices"><span class="insight-tab-label"><strong>Shura</strong><br><span style="font-size:0.65rem;opacity:0.7">Robustness</span></span></button>
+        <button class="insights-tab" data-insight="hikmah" role="tab" aria-selected="false" title="Clinical Decision Context: Personalized NNT calculator"><span class="insight-tab-label"><strong>Hikmah</strong><br><span style="font-size:0.65rem;opacity:0.7">Clinical</span></span></button>
+        <button class="insights-tab" data-insight="fitrah" role="tab" aria-selected="false" title="Natural Query Interface: Ask questions in plain language"><span class="insight-tab-label"><strong>Fitrah</strong><br><span style="font-size:0.65rem;opacity:0.7">Q&amp;A</span></span></button>
+        <button class="insights-tab" data-insight="ihsan" role="tab" aria-selected="false" title="Excellence Visualization: Icon arrays, quantile dots, timelines"><span class="insight-tab-label"><strong>Ihsan</strong><br><span style="font-size:0.65rem;opacity:0.7">Visuals</span></span></button>
+        <button class="insights-tab" data-insight="amanah" role="tab" aria-selected="false" title="Evidence Gap Registry: Structured gap accountability"><span class="insight-tab-label"><strong>Amanah</strong><br><span style="font-size:0.65rem;opacity:0.7">Gaps</span></span></button>
+        <button class="insights-tab" data-insight="taqwa" role="tab" aria-selected="false" title="Integrity Sentinel: GRIM test, retraction checks, funding bias"><span class="insight-tab-label"><strong>Taqwa</strong><br><span style="font-size:0.65rem;opacity:0.7">Integrity</span></span></button>
+        <button class="insights-tab" data-insight="dhulm" role="tab" aria-selected="false" title="Health Equity Detector: Representation justice analysis"><span class="insight-tab-label"><strong>Dhulm</strong><br><span style="font-size:0.65rem;opacity:0.7">Equity</span></span></button>
+        <button class="insights-tab" data-insight="rahma" role="tab" aria-selected="false" title="Patient-Facing Translation: Plain-language summaries"><span class="insight-tab-label"><strong>Rahma</strong><br><span style="font-size:0.65rem;opacity:0.7">Summary</span></span></button>
+        <button class="insights-tab" data-insight="tabayyun" role="tab" aria-selected="false" title="Verification Engine: Cross-source verification states (49:6)"><span class="insight-tab-label"><strong>Tabayyun</strong><br><span style="font-size:0.65rem;opacity:0.7">Verify</span></span></button>
         <button class="insights-tab" data-insight="living" role="tab" aria-selected="false" title="Living Evidence: Currency tracking, update triggers, version deltas">Living</button>
         <button class="insights-tab" data-insight="conflict" role="tab" aria-selected="false" title="Conflict Detector: Contradictory outcomes across sources">Conflicts</button>
         <button class="insights-tab" data-insight="radar" role="tab" aria-selected="false" title="Opportunity Radar: New evidence since last meta-analysis">Radar</button>
