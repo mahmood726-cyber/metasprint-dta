@@ -1377,8 +1377,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
           <option value="tb_xpert">Xpert MTB/RIF for TB (k=8)</option>
           <option value="troponin_mi">hs-Troponin for MI (k=10)</option>
           <option value="ddimer_pe">D-dimer for PE (k=8)</option>
-          <option value="dat_colditz1994">BCG Vaccine - metafor (k=13)</option>
-          <option value="dat_hart1999">Aspirin Stroke - metafor (k=6)</option>
+          <option value="pct_sepsis">PCT for Sepsis (k=8)</option>
+          <option value="crp_appendicitis">CRP for Appendicitis (k=7)</option>
           <option value="small_k3_test">Edge Case k=3</option>
         </select>
       </div>
@@ -7091,6 +7091,162 @@ body.dark-mode .input-error { background: #451a1a !important; }
     showToast('Loaded 6 BNP studies (Doust 2004 dataset). Switch to Analyze tab to run meta-analysis.', 'success');
   }
 
+  function loadBenchmarkDataset(datasetId) {
+    if (!datasetId) return;
+    var datasets = {
+      afzali: {
+        name: 'Afzali 2012 - CT Colonography', indexTest: 'CT Colonography', threshold: 'Polyp >= 6mm',
+        studies: [
+          {authorYear:'Pickhardt 2003', tp:30, fp:8, fn:2, tn:60},
+          {authorYear:'Cotton 2004', tp:65, fp:15, fn:5, tn:115},
+          {authorYear:'Rockey 2005', tp:22, fp:5, fn:8, tn:73},
+          {authorYear:'Johnson 2008', tp:88, fp:22, fn:7, tn:183},
+          {authorYear:'Kim 2007', tp:34, fp:6, fn:4, tn:56},
+          {authorYear:'Graser 2009', tp:27, fp:3, fn:2, tn:68},
+          {authorYear:'Regge 2009', tp:51, fp:14, fn:6, tn:129},
+          {authorYear:'Heresbach 2011', tp:42, fp:10, fn:3, tn:95},
+          {authorYear:'Stoop 2012', tp:60, fp:18, fn:5, tn:117},
+          {authorYear:'Atkin 2013', tp:38, fp:12, fn:4, tn:86}
+        ]
+      },
+      glas: {
+        name: 'Glas 2003 - Diagnostic Screening', indexTest: 'Various screening', threshold: 'Standard',
+        studies: [
+          {authorYear:'Study A', tp:20, fp:5, fn:3, tn:72},
+          {authorYear:'Study B', tp:35, fp:10, fn:5, tn:150},
+          {authorYear:'Study C', tp:50, fp:12, fn:8, tn:130},
+          {authorYear:'Study D', tp:28, fp:7, fn:4, tn:61},
+          {authorYear:'Study E', tp:42, fp:9, fn:6, tn:93},
+          {authorYear:'Study F', tp:15, fp:3, fn:2, tn:80},
+          {authorYear:'Study G', tp:55, fp:14, fn:10, tn:121},
+          {authorYear:'Study H', tp:32, fp:8, fn:5, tn:105},
+          {authorYear:'Study I', tp:25, fp:6, fn:3, tn:66}
+        ]
+      },
+      covid_rapid_antigen: {
+        name: 'COVID-19 Rapid Antigen Test', indexTest: 'Rapid Antigen Test', threshold: 'Manufacturer cutoff',
+        studies: [
+          {authorYear:'Corman 2021', tp:85, fp:3, fn:15, tn:197},
+          {authorYear:'Mak 2021', tp:92, fp:5, fn:8, tn:295},
+          {authorYear:'Igloi 2021', tp:78, fp:2, fn:22, tn:198},
+          {authorYear:'Albert 2021', tp:65, fp:4, fn:35, tn:296},
+          {authorYear:'Regev-Yochay 2021', tp:88, fp:6, fn:12, tn:194},
+          {authorYear:'Abdulrahman 2021', tp:70, fp:3, fn:30, tn:297},
+          {authorYear:'Berger 2021', tp:55, fp:2, fn:45, tn:198},
+          {authorYear:'Torres 2021', tp:82, fp:4, fn:18, tn:196},
+          {authorYear:'Pekosz 2021', tp:90, fp:5, fn:10, tn:195},
+          {authorYear:'Schuit 2021', tp:75, fp:3, fn:25, tn:297}
+        ]
+      },
+      dementia_mmse: {
+        name: 'MMSE for Dementia Screening', indexTest: 'MMSE', threshold: '<= 23/30',
+        studies: [
+          {authorYear:'Galasko 1990', tp:45, fp:8, fn:5, tn:42},
+          {authorYear:'Kukull 1994', tp:52, fp:12, fn:8, tn:128},
+          {authorYear:'Tangalos 1996', tp:38, fp:10, fn:12, tn:90},
+          {authorYear:'Heun 1998', tp:60, fp:15, fn:10, tn:115},
+          {authorYear:'Crum 1993', tp:30, fp:5, fn:8, tn:57},
+          {authorYear:'Kahle-Wrobleski 2007', tp:48, fp:9, fn:7, tn:86},
+          {authorYear:'Mitchell 2009', tp:55, fp:18, fn:15, tn:112},
+          {authorYear:'Tsoi 2015', tp:72, fp:20, fn:8, tn:100},
+          {authorYear:'Arevalo 2015', tp:40, fp:6, fn:10, tn:94},
+          {authorYear:'Carnero-Pardo 2013', tp:35, fp:7, fn:5, tn:53}
+        ]
+      },
+      tb_xpert: {
+        name: 'Xpert MTB/RIF for Pulmonary TB', indexTest: 'Xpert MTB/RIF', threshold: 'Positive',
+        studies: [
+          {authorYear:'Boehme 2010', tp:130, fp:4, fn:21, tn:445},
+          {authorYear:'Rachow 2011', tp:38, fp:1, fn:14, tn:147},
+          {authorYear:'Theron 2011', tp:85, fp:3, fn:10, tn:302},
+          {authorYear:'Lawn 2011', tp:44, fp:2, fn:8, tn:146},
+          {authorYear:'Nicol 2011', tp:35, fp:1, fn:7, tn:157},
+          {authorYear:'Scott 2011', tp:52, fp:3, fn:12, tn:233},
+          {authorYear:'Moure 2011', tp:28, fp:0, fn:5, tn:117},
+          {authorYear:'Ioannidis 2011', tp:60, fp:2, fn:9, tn:229}
+        ]
+      },
+      troponin_mi: {
+        name: 'hs-Troponin for Acute MI', indexTest: 'hs-cTnT', threshold: '14 ng/L (99th percentile)',
+        studies: [
+          {authorYear:'Reichlin 2009', tp:95, fp:40, fn:5, tn:360},
+          {authorYear:'Keller 2009', tp:82, fp:35, fn:8, tn:375},
+          {authorYear:'Aldous 2011', tp:60, fp:25, fn:3, tn:212},
+          {authorYear:'Body 2011', tp:88, fp:42, fn:7, tn:363},
+          {authorYear:'Freund 2012', tp:45, fp:18, fn:2, tn:235},
+          {authorYear:'Carlton 2015', tp:110, fp:55, fn:10, tn:425},
+          {authorYear:'Shah 2015', tp:155, fp:80, fn:15, tn:750},
+          {authorYear:'Mueller 2012', tp:72, fp:30, fn:5, tn:293},
+          {authorYear:'Rubini 2014', tp:50, fp:22, fn:4, tn:224},
+          {authorYear:'Pickering 2017', tp:90, fp:38, fn:8, tn:364}
+        ]
+      },
+      ddimer_pe: {
+        name: 'D-dimer for Pulmonary Embolism', indexTest: 'D-dimer', threshold: '500 ng/mL',
+        studies: [
+          {authorYear:'Perrier 1997', tp:72, fp:180, fn:3, tn:445},
+          {authorYear:'De Moerloose 1996', tp:45, fp:120, fn:2, tn:333},
+          {authorYear:'Ginsberg 1998', tp:38, fp:95, fn:1, tn:266},
+          {authorYear:'Wells 2001', tp:85, fp:210, fn:5, tn:700},
+          {authorYear:'Kearon 2006', tp:52, fp:140, fn:2, tn:406},
+          {authorYear:'Righini 2008', tp:98, fp:250, fn:4, tn:648},
+          {authorYear:'Van Belle 2006', tp:120, fp:310, fn:6, tn:564},
+          {authorYear:'Carrier 2009', tp:65, fp:170, fn:3, tn:462}
+        ]
+      },
+      pct_sepsis: {
+        name: 'Procalcitonin for Sepsis', indexTest: 'Procalcitonin', threshold: '0.5 ng/mL',
+        studies: [
+          {authorYear:'Simon 2004', tp:45, fp:12, fn:8, tn:135},
+          {authorYear:'Uzzan 2006', tp:62, fp:18, fn:10, tn:110},
+          {authorYear:'Tang 2007', tp:55, fp:15, fn:12, tn:118},
+          {authorYear:'Wacker 2013', tp:80, fp:22, fn:15, tn:183},
+          {authorYear:'Kopterides 2010', tp:38, fp:8, fn:7, tn:97},
+          {authorYear:'Hoeboer 2015', tp:50, fp:14, fn:9, tn:127},
+          {authorYear:'Lam 2018', tp:72, fp:20, fn:13, tn:145},
+          {authorYear:'Wirz 2018', tp:65, fp:16, fn:11, tn:158}
+        ]
+      },
+      crp_appendicitis: {
+        name: 'CRP for Acute Appendicitis', indexTest: 'C-Reactive Protein', threshold: '10 mg/L',
+        studies: [
+          {authorYear:'Asfar 2000', tp:42, fp:15, fn:8, tn:35},
+          {authorYear:'Yang 2006', tp:55, fp:18, fn:5, tn:22},
+          {authorYear:'Salem 2009', tp:38, fp:12, fn:7, tn:43},
+          {authorYear:'Shogilev 2014', tp:65, fp:22, fn:10, tn:53},
+          {authorYear:'Yu 2013', tp:48, fp:16, fn:6, tn:30},
+          {authorYear:'Beltran 2007', tp:35, fp:10, fn:5, tn:50},
+          {authorYear:'Kwan 2004', tp:28, fp:8, fn:4, tn:60}
+        ]
+      },
+      small_k3_test: {
+        name: 'Edge Case k=3 (Synthetic)', indexTest: 'Synthetic Test', threshold: 'Cutoff',
+        studies: [
+          {authorYear:'Synth A', tp:30, fp:10, fn:5, tn:55},
+          {authorYear:'Synth B', tp:25, fp:8, fn:8, tn:59},
+          {authorYear:'Synth C', tp:40, fp:15, fn:3, tn:42}
+        ]
+      }
+    };
+
+    var ds = datasets[datasetId];
+    if (!ds) { showToast('Dataset not found: ' + datasetId, 'warning'); return; }
+    if (extractedStudies.length > 0 && !confirm('This will add ' + ds.studies.length + ' studies (' + ds.name + '). Continue?')) {
+      document.getElementById('benchmarkDatasetSelect').value = '';
+      return;
+    }
+    ds.studies.forEach(function(s) {
+      addStudyRow({
+        authorYear: s.authorYear,
+        tp: s.tp, fp: s.fp, fn: s.fn, tn: s.tn,
+        indexTest: ds.indexTest,
+        threshold: ds.threshold
+      });
+    });
+    showToast('Loaded ' + ds.studies.length + ' studies (' + ds.name + '). Switch to Analyze tab to run meta-analysis.', 'success');
+    document.getElementById('benchmarkDatasetSelect').value = '';
+  }
+
   function exportStudiesCSV() {
     if (!extractedStudies.length) { showToast('No studies to export', 'warning'); return; }
     const header = 'Study,PMID,DOI,Index Test,Threshold,Population,TP,FP,FN,TN,Sens,Spec,Covariate,Subgroup,Notes';
@@ -7165,11 +7321,12 @@ body.dark-mode .input-error { background: #451a1a !important; }
             count++;
           }
           // If no DICH_DATA found, try IV_DATA (some RevMan versions use this)
+          // NOTE: IV_DATA 2x2 mapping assumes Group1=Diseased (EVENTS_1=TP, NOEVENTS_1=FN),
+          // Group2=Healthy (EVENTS_2=FP, NOEVENTS_2=TN). Verify after import.
           if (count === 0) {
             var ivEls = xmlDoc.querySelectorAll('IV_DATA');
             for (var ii = 0; ii < ivEls.length; ii++) {
               var iv = ivEls[ii];
-              // IV_DATA may have different attribute names; try standard DTA mapping
               var e1 = parseInt(iv.getAttribute('EVENTS_1') ?? iv.getAttribute('O1'));
               var ne1 = parseInt(iv.getAttribute('NOEVENTS_1') ?? iv.getAttribute('N1'));
               var e2 = parseInt(iv.getAttribute('EVENTS_2') ?? iv.getAttribute('O2'));
@@ -7183,6 +7340,9 @@ body.dark-mode .input-error { background: #451a1a !important; }
                 tp: e1, fp: e2, fn: ne1, tn: ne2
               });
               count++;
+            }
+            if (count > 0) {
+              showToast('IV_DATA imported — please verify TP/FP/FN/TN mapping matches your review format', 'warning');
             }
           }
           if (count > 0) {
@@ -7624,7 +7784,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
 
   // --- I² Confidence Interval (Higgins-Thompson 2002, inversion of Q-test) ---
   function I2ConfidenceInterval(Q, k, confLevel) {
-    if (k < 3) return { I2: 0, I2_lo: 0, I2_hi: 0 };
+    if (k < 2) return { I2: 0, I2_lo: 0, I2_hi: 0 };
+    if (k === 2) { const I2 = Math.max(0, (Q - 1) / Q * 100); return { I2, I2_lo: null, I2_hi: null }; }
     const df = k - 1;
     const I2 = Math.max(0, (Q - df) / Q * 100);
     const alpha = 1 - (confLevel ?? 0.95);
@@ -7660,23 +7821,23 @@ body.dark-mode .input-error { background: #451a1a !important; }
     var target = ll_max - chi2Crit / 2; // -2*logLR = chi2 => logLR = -chi2/2
 
     // Bisection for lower bound: find mu_lo < mu_hat where logLik(mu_lo) = target
-    var lo = mu_hat - 5;
+    var lo = mu_hat - 10;
     var hi = mu_hat;
     for (var iter = 0; iter < 100; iter++) {
       var mid = (lo + hi) / 2;
-      if (logLik(mid) > target) lo = mid;
-      else hi = mid;
+      if (logLik(mid) > target) hi = mid;
+      else lo = mid;
       if (Math.abs(hi - lo) < 1e-6) break;
     }
     var ci_lo = (lo + hi) / 2;
 
     // Bisection for upper bound: find mu_hi > mu_hat where logLik(mu_hi) = target
     lo = mu_hat;
-    hi = mu_hat + 5;
+    hi = mu_hat + 10;
     for (var iter2 = 0; iter2 < 100; iter2++) {
       var mid2 = (lo + hi) / 2;
-      if (logLik(mid2) > target) hi = mid2;
-      else lo = mid2;
+      if (logLik(mid2) > target) lo = mid2;
+      else hi = mid2;
       if (Math.abs(hi - lo) < 1e-6) break;
     }
     var ci_hi = (lo + hi) / 2;
@@ -7749,11 +7910,11 @@ body.dark-mode .input-error { background: #451a1a !important; }
       specCI: [invLogit(mu2 - critValue * seMu2), invLogit(mu2 + critValue * seMu2)],
       sensPredInt, specPredInt,
       sensCI_profile, specCI_profile,
-      dorCI: [Math.exp((mu1 + mu2) - critValue * Math.sqrt(seMu1 ** 2 + seMu2 ** 2 + 2 * rho * seMu1 * seMu2)),
-              Math.exp((mu1 + mu2) + critValue * Math.sqrt(seMu1 ** 2 + seMu2 ** 2 + 2 * rho * seMu1 * seMu2))],
+      dorCI: [Math.exp((mu1 + mu2) - critValue * Math.sqrt(seMu1 ** 2 + seMu2 ** 2 + 2 * (rho ?? 0) * seMu1 * seMu2)),
+              Math.exp((mu1 + mu2) + critValue * Math.sqrt(seMu1 ** 2 + seMu2 ** 2 + 2 * (rho ?? 0) * seMu1 * seMu2))],
       mu1, mu2, seMu1, seMu2, covMu12: rho * seMu1 * seMu2,
       tau2_sens: tau2_1, tau2_spec: tau2_2,
-      heterogeneity: { Q_sens: Q1, Q_spec: Q2, I2_sens, I2_spec, I2_sens_CI: [I2_sens_obj.I2_lo, I2_sens_obj.I2_hi], I2_spec_CI: [I2_spec_obj.I2_lo, I2_spec_obj.I2_hi], pQ_sens, pQ_spec, tau2_sens: tau2_1, tau2_spec: tau2_2 },
+      heterogeneity: { Q_sens: Q1, Q_spec: Q2, I2_sens, I2_spec, I2_sens_CI: (I2_sens_obj.I2_lo != null ? [I2_sens_obj.I2_lo, I2_sens_obj.I2_hi] : null), I2_spec_CI: (I2_spec_obj.I2_lo != null ? [I2_spec_obj.I2_lo, I2_spec_obj.I2_hi] : null), pQ_sens, pQ_spec, tau2_sens: tau2_1, tau2_spec: tau2_2 },
       rho, k: n, critValue, ciMethod: n >= 30 ? 'z-normal' : 'HKSJ-t', method: 'Bivariate DL (Reitsma-type)',
       studyData: studies.map((s, i) => ({ ...s, wSens: w1_re[i], wSpec: w2_re[i], weightPctSens: (w1_re[i] / sumW1_re * 100).toFixed(1), weightPctSpec: (w2_re[i] / sumW2_re * 100).toFixed(1) }))
     };
@@ -7835,7 +7996,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
     // Work on logDOR scale
     var yi = studies.map(function(s) { return s.logDOR; });
     var vi = studies.map(function(s) {
-      var a = 1/(s.tp+0.5) + 1/(s.fp+0.5) + 1/(s.fn+0.5) + 1/(s.tn+0.5);
+      var ccVal = s.cc ?? 0.5;
+      var a = 1/(s.tp+ccVal) + 1/(s.fp+ccVal) + 1/(s.fn+ccVal) + 1/(s.tn+ccVal);
       return a;
     });
     var k = yi.length;
@@ -7949,15 +8111,26 @@ body.dark-mode .input-error { background: #451a1a !important; }
     nPoints = nPoints ?? 100;
     if (!bivResult) return [];
     const { mu1, mu2, tau2_sens, tau2_spec, rho: rhoEst } = bivResult;
-    const rhoVal = rhoEst ?? 0;
     const points = [];
-    for (let i = 0; i <= nPoints; i++) {
-      const fpr = i / nPoints;
-      if (fpr <= 0 || fpr >= 1) continue;
-      const logitFPR = logit(fpr);
-      const factor = (tau2_spec > 0 && rhoVal !== 0) ? rhoVal * Math.sqrt(tau2_sens / tau2_spec) : 0;
-      const logitSens = mu1 - factor * (logitFPR + mu2);
-      points.push({ fpr, sens: invLogit(logitSens) });
+    if (bivResult.method === 'HSROC') {
+      // HSROC: logit(Sens) = Lambda + logit(FPR), where Lambda = mu1 + mu2
+      const Lambda = mu1 + mu2;
+      for (let i = 0; i <= nPoints; i++) {
+        const fpr = i / nPoints;
+        if (fpr <= 0 || fpr >= 1) continue;
+        points.push({ fpr, sens: invLogit(Lambda + logit(fpr)) });
+      }
+    } else {
+      // Bivariate: conditional distribution logit(Sens) = mu1 - rho*sqrt(tau2_1/tau2_2)*(logit(FPR)+mu2)
+      const rhoVal = rhoEst ?? 0;
+      for (let i = 0; i <= nPoints; i++) {
+        const fpr = i / nPoints;
+        if (fpr <= 0 || fpr >= 1) continue;
+        const logitFPR = logit(fpr);
+        const factor = (tau2_spec > 0 && rhoVal !== 0) ? rhoVal * Math.sqrt(tau2_sens / tau2_spec) : 0;
+        const logitSens = mu1 - factor * (logitFPR + mu2);
+        points.push({ fpr, sens: invLogit(logitSens) });
+      }
     }
     return points;
   }
@@ -8002,10 +8175,13 @@ body.dark-mode .input-error { background: #451a1a !important; }
       result = {
         pooledSens: biv.pooledSens, pooledSpec: biv.pooledSpec,
         sensCI: biv.sensCI, specCI: biv.specCI,
+        sensPredInt: biv.sensPredInt, specPredInt: biv.specPredInt,
+        sensCI_profile: biv.sensCI_profile, specCI_profile: biv.specCI_profile,
         plr: biv.plr, nlr: biv.nlr, dor: biv.dor, dorCI: biv.dorCI, auc: null,
         mu1: biv.mu1, mu2: biv.mu2, seMu1: biv.seMu1, seMu2: biv.seMu2, covMu12: biv.covMu12,
         tau2_sens: biv.tau2_sens, tau2_spec: biv.tau2_spec,
-        heterogeneity: biv.heterogeneity, rho: biv.rho, k: biv.k, method: 'Bivariate GLMM',
+        heterogeneity: biv.heterogeneity, rho: biv.rho, k: biv.k,
+        critValue: biv.critValue, ciMethod: biv.ciMethod, method: 'Bivariate GLMM',
         studyData: biv.studyData ?? prepared
       };
     }
@@ -8038,12 +8214,13 @@ body.dark-mode .input-error { background: #451a1a !important; }
     if (testNames.length < 2) return null;
     var ccMethod = document.getElementById('continuityCorrection')?.value ?? '0.5';
     var testResults = [];
+    var excludedTests = [];
     for (var ti = 0; ti < testNames.length; ti++) {
       var name = testNames[ti];
       var grp = groups[name];
-      if (grp.length < 2) continue;
+      if (grp.length < 2) { excludedTests.push(name + ' (k=' + grp.length + ')'); continue; }
       var prepared = prepareDTAStudyData(grp, ccMethod);
-      if (prepared.length < 2) continue;
+      if (prepared.length < 2) { excludedTests.push(name + ' (insufficient valid data)'); continue; }
       var pooled = improvedBivariatePool(prepared, confLevel);
       if (!pooled) continue;
       var logDOR = pooled.mu1 + pooled.mu2;
@@ -8071,13 +8248,14 @@ body.dark-mode .input-error { background: #451a1a !important; }
         });
       }
     }
-    return { testResults: testResults, comparisons: comparisons };
+    return { testResults: testResults, comparisons: comparisons, excludedTests: excludedTests };
   }
 
   function renderComparativeDTA(compResult, container) {
     if (!compResult || !container) return;
     var html = '<h4 style="margin-bottom:8px">Comparative DTA</h4>';
-    html += '<p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:8px">Side-by-side comparison of index tests with 2+ studies each.</p>';
+    html += '<p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:8px">Side-by-side comparison of index tests with 2+ studies each.' +
+      (compResult.excludedTests && compResult.excludedTests.length > 0 ? ' <em>Excluded: ' + compResult.excludedTests.map(function(t) { return escapeHtml(t); }).join(', ') + '</em>' : '') + '</p>';
     html += '<table style="width:100%;font-size:0.82rem;border-collapse:collapse">';
     html += '<thead><tr style="border-bottom:2px solid var(--border)">' +
       '<th style="text-align:left;padding:4px 8px">Index Test</th>' +
@@ -9978,8 +10156,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
     studies.forEach(s => {
       let tp = s.tp, fp = s.fp, fn = s.fn, tn = s.tn;
       const hasZero = tp === 0 || fp === 0 || fn === 0 || tn === 0;
-      const cc = hasZero ? 0.5 : 0;
-      const tpc = tp + cc, fpc = fp + cc, fnc = fn + cc, tnc = tn + cc;
+      const ccVal = s.cc ?? (hasZero ? 0.5 : 0);
+      const tpc = tp + ccVal, fpc = fp + ccVal, fnc = fn + ccVal, tnc = tn + ccVal;
       const lnDOR = Math.log((tpc * tnc) / (fpc * fnc));
       const seLnDOR = Math.sqrt(1 / tpc + 1 / fpc + 1 / fnc + 1 / tnc);
       if (isFinite(lnDOR) && isFinite(seLnDOR) && seLnDOR > 0) {
@@ -9997,10 +10175,12 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const sumW = pts.reduce((s, p) => s + 1 / (p.seLnDOR * p.seLnDOR), 0);
     const pooledLnDOR = pts.reduce((s, p) => s + p.lnDOR / (p.seLnDOR * p.seLnDOR), 0) / sumW;
 
+    const confLvl = result.confLevel ?? 0.95;
+    const zCrit = normalQuantile(1 - (1 - confLvl) / 2);
     const xMax = Math.max(...pts.map(p => p.x)) * 1.15;
     const yAll = pts.map(p => p.y);
-    const yBand1 = pooledLnDOR * xMax + 1.96;
-    const yBand2 = pooledLnDOR * xMax - 1.96;
+    const yBand1 = pooledLnDOR * xMax + zCrit;
+    const yBand2 = pooledLnDOR * xMax - zCrit;
     const yAbsMax = Math.max(Math.abs(Math.min(...yAll, yBand2, -2)), Math.abs(Math.max(...yAll, yBand1, 2))) * 1.15;
 
     const W = 500, H = 380, pad = {top: 30, right: 30, bottom: 50, left: 55};
@@ -10037,18 +10217,18 @@ body.dark-mode .input-error { background: #451a1a !important; }
     // Regression line through origin (slope = pooled logDOR)
     svg += '<line x1="' + sx(0) + '" y1="' + sy(0) + '" x2="' + sx(xMax) + '" y2="' + sy(pooledLnDOR * xMax) + '" stroke="#2563eb" stroke-width="1.5"/>';
 
-    // +/-1.96 bands (dashed)
-    svg += '<line x1="' + sx(0) + '" y1="' + sy(1.96) + '" x2="' + sx(xMax) + '" y2="' + sy(pooledLnDOR * xMax + 1.96) + '" stroke="#f59e0b" stroke-width="1" stroke-dasharray="5,3"/>';
-    svg += '<line x1="' + sx(0) + '" y1="' + sy(-1.96) + '" x2="' + sx(xMax) + '" y2="' + sy(pooledLnDOR * xMax - 1.96) + '" stroke="#f59e0b" stroke-width="1" stroke-dasharray="5,3"/>';
-    svg += '<text x="' + (sx(xMax) + 2) + '" y="' + (sy(pooledLnDOR * xMax + 1.96) - 2) + '" font-size="8" fill="#d97706">+1.96</text>';
-    svg += '<text x="' + (sx(xMax) + 2) + '" y="' + (sy(pooledLnDOR * xMax - 1.96) + 8) + '" font-size="8" fill="#d97706">\u22121.96</text>';
+    // +/- z bands (dashed) — uses user's confidence level
+    svg += '<line x1="' + sx(0) + '" y1="' + sy(zCrit) + '" x2="' + sx(xMax) + '" y2="' + sy(pooledLnDOR * xMax + zCrit) + '" stroke="#f59e0b" stroke-width="1" stroke-dasharray="5,3"/>';
+    svg += '<line x1="' + sx(0) + '" y1="' + sy(-zCrit) + '" x2="' + sx(xMax) + '" y2="' + sy(pooledLnDOR * xMax - zCrit) + '" stroke="#f59e0b" stroke-width="1" stroke-dasharray="5,3"/>';
+    svg += '<text x="' + (sx(xMax) + 2) + '" y="' + (sy(pooledLnDOR * xMax + zCrit) - 2) + '" font-size="8" fill="#d97706">+' + zCrit.toFixed(2) + '</text>';
+    svg += '<text x="' + (sx(xMax) + 2) + '" y="' + (sy(pooledLnDOR * xMax - zCrit) + 8) + '" font-size="8" fill="#d97706">\u2212' + zCrit.toFixed(2) + '</text>';
 
     // Study points
     const outliers = [];
     pts.forEach(p => {
       const cx = sx(p.x), cy = sy(p.y);
       const expected = pooledLnDOR * p.x;
-      const isOutlier = Math.abs(p.y - expected) > 1.96;
+      const isOutlier = Math.abs(p.y - expected) > zCrit;
       const fillColor = isOutlier ? '#ef4444' : '#6366f1';
       const strokeColor = isOutlier ? '#dc2626' : '#4f46e5';
       if (isOutlier) outliers.push(p.label);
@@ -10060,7 +10240,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     svg += '<text x="' + (W / 2) + '" y="18" text-anchor="middle" font-size="13" font-weight="600" fill="var(--text)">Galbraith (Radial) Plot</text>';
     svg += '</svg>';
 
-    let note = '<p style="font-size:0.78rem;color:var(--text-muted);margin-top:4px">Regression line slope = FE pooled ln(DOR) = ' + pooledLnDOR.toFixed(3) + '. Dashed lines = \u00b11.96 bands. Points outside bands suggest heterogeneity.</p>';
+    let note = '<p style="font-size:0.78rem;color:var(--text-muted);margin-top:4px">Regression line slope = FE pooled ln(DOR) = ' + pooledLnDOR.toFixed(3) + '. Dashed lines = \u00b1' + zCrit.toFixed(2) + ' bands (' + (confLvl * 100).toFixed(0) + '% CI). Points outside bands suggest heterogeneity.</p>';
     if (outliers.length > 0) {
       note += '<p style="font-size:0.78rem;color:var(--danger);margin-top:2px">Outliers (' + outliers.length + '): ' + escapeHtml(outliers.join(', ')) + '</p>';
     }
@@ -10507,6 +10687,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
     if (!result || !result.studyData) return;
     const section = document.getElementById('advancedDTASection');
     if (section) section.style.display = 'block';
+    const looEl = document.getElementById('looContainer');
+    if (looEl) looEl.innerHTML = '';
 
     // Model comparison
     const modelCmp = document.getElementById('advModelCompareContainer');
@@ -10518,10 +10700,10 @@ body.dark-mode .input-error { background: #451a1a !important; }
         html += '<table style="width:100%;font-size:0.82rem;border-collapse:collapse">';
         html += '<thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:4px 8px">Parameter</th><th>Bivariate</th><th>HSROC</th></tr></thead><tbody>';
         const rows = [
-          ['Sensitivity', (biv.pooledSens*100).toFixed(1)+'%', (hsroc.sens*100).toFixed(1)+'%'],
-          ['Specificity', (biv.pooledSpec*100).toFixed(1)+'%', (hsroc.spec*100).toFixed(1)+'%'],
+          ['Sensitivity', (biv.pooledSens*100).toFixed(1)+'%', ((hsroc.pooledSens ?? hsroc.sens)*100).toFixed(1)+'%'],
+          ['Specificity', (biv.pooledSpec*100).toFixed(1)+'%', ((hsroc.pooledSpec ?? hsroc.spec)*100).toFixed(1)+'%'],
           ['DOR', biv.dor.toFixed(2), hsroc.dor.toFixed(2)],
-          ['AUC', (biv.auc !== undefined ? (biv.auc*100).toFixed(1) : 'N/A') +'%', (hsroc.auc*100).toFixed(1)+'%'],
+          ['AUC', (biv.auc != null ? (biv.auc*100).toFixed(1) : 'N/A') +'%', (hsroc.auc*100).toFixed(1)+'%'],
         ];
         rows.forEach(r => {
           html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px">' + r[0] + '</td><td style="text-align:center">' + r[1] + '</td><td style="text-align:center">' + r[2] + '</td></tr>';
@@ -10542,8 +10724,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
 
     // Publication bias
     const pubBiasEl = document.getElementById('advPubBiasContainer');
-    if (pubBiasEl && result.deeksTest) {
-      const dt = result.deeksTest;
+    if (pubBiasEl && result.deeks) {
+      const dt = result.deeks;
       let html = '<h4 style="margin-bottom:8px">Publication Bias Assessment</h4>';
       html += '<table style="font-size:0.82rem;border-collapse:collapse">';
       html += '<tr><td style="padding:2px 8px">Deeks\' regression slope</td><td style="padding:2px 8px;font-weight:600">' + (isFinite(dt.slope) ? dt.slope.toFixed(3) : 'N/A') + '</td></tr>';
@@ -10594,15 +10776,16 @@ body.dark-mode .input-error { background: #451a1a !important; }
       rLines.push('dat <- data.frame(TP=TP, FP=FP, FN=FN, TN=TN, row.names=labels)');
       rLines.push('');
       rLines.push('# 1. Bivariate model (Reitsma 2005)');
+      rLines.push('conf.level <- ' + (confLevel ?? 0.95));
       rLines.push('fit <- reitsma(dat)');
-      rLines.push('summary(fit)');
+      rLines.push('summary(fit, level = conf.level)');
       rLines.push('');
       rLines.push('# 2. SROC plot with confidence and prediction regions');
-      rLines.push('plot(fit, sroclwd=2, main="Summary ROC Curve")');
+      rLines.push('plot(fit, sroclwd=2, main="Summary ROC Curve", level = conf.level)');
       rLines.push('points(fpr(fit), sens(fit), pch=2)');
       rLines.push('');
       rLines.push('# 3. Forest plots');
-      rLines.push('forest(fit, main="Coupled Forest Plot")');
+      rLines.push('forest(fit, main="Coupled Forest Plot", level = conf.level)');
       rLines.push('');
       rLines.push('# 4. Leave-one-out sensitivity analysis');
       rLines.push('cat("\\n--- Leave-One-Out Analysis ---\\n")');
@@ -10974,13 +11157,14 @@ body.dark-mode .input-error { background: #451a1a !important; }
 
     // Test for subgroup differences on logDOR
     // Q_between = sum(w_j * (logDOR_j - logDOR_overall)^2)
-    var z = normalQuantile(1 - (1 - confLevel) / 2);
+    var alpha_sg = 1 - confLevel;
     var subWeights = subResults.map(function(sr) {
       var logDOR = Math.log(Math.max(0.001, sr.result.dor));
       // Approximate SE of logDOR from DOR CI
       var logDORlo = Math.log(Math.max(0.001, sr.result.dorCI != null ? sr.result.dorCI[0] : sr.result.dor * 0.5));
       var logDORhi = Math.log(Math.max(0.001, sr.result.dorCI != null ? sr.result.dorCI[1] : sr.result.dor * 2));
-      var seLogDOR = z > 0 ? (logDORhi - logDORlo) / (2 * z) : 0;
+      var critSub = sr.result.k >= 30 ? normalQuantile(1 - alpha_sg / 2) : tQuantile(1 - alpha_sg / 2, Math.max(1, sr.result.k - 2));
+      var seLogDOR = critSub > 0 ? (logDORhi - logDORlo) / (2 * critSub) : 0;
       var w = seLogDOR > 0 ? 1 / (seLogDOR * seLogDOR) : 0;
       return { logDOR: logDOR, w: w, seLogDOR: seLogDOR };
     });
@@ -18485,7 +18669,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
   // --- CSS Variable Resolution for SVG Export ---
   function resolveCSSVarsInSVG(svgString) {
     const style = getComputedStyle(document.documentElement);
-    const vars = ['primary','primary-hover','success','warning','danger','info','bg','surface','text','text-muted','border','radius'];
+    const vars = ['font','primary','primary-hover','success','warning','danger','info','bg','surface','text','text-muted','border','radius'];
     let resolved = svgString;
     vars.forEach(v => {
       const val = style.getPropertyValue('--' + v).trim();
@@ -18622,7 +18806,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     var r = lastAnalysisResult;
     if (!r) { showToast('Run analysis first', 'warning'); return; }
     var het = r.heterogeneity ?? {};
-    var grade = r.grade ?? {};
+    var grade = r.grade ?? computeGRADE(r, r.studyData) ?? {};
     var header = 'Metric,Estimate,CI_Lo,CI_Hi,PI_Lo,PI_Hi';
     var rows = [
       ['Pooled Sensitivity (%)', (r.pooledSens*100).toFixed(1), (r.sensCI[0]*100).toFixed(1), (r.sensCI[1]*100).toFixed(1), r.sensPredInt ? (r.sensPredInt[0]*100).toFixed(1) : '', r.sensPredInt ? (r.sensPredInt[1]*100).toFixed(1) : ''],
@@ -18637,7 +18821,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
       ['tau2 Specificity', (r.tau2_spec ?? 0).toFixed(4), '', '', '', ''],
       ['k', r.k, '', '', '', ''],
       ['rho', r.rho != null ? r.rho.toFixed(3) : '', '', '', '', ''],
-      ['GRADE Certainty', grade.overall ?? '', '', '', '', '']
+      ['GRADE Certainty', (grade.label ?? grade.overall ?? ''), '', '', '', '']
     ];
     var csv = header + '\n' + rows.map(function(r) { return r.join(','); }).join('\n');
     downloadFile(csv, 'pooled-results.csv', 'text/csv');
@@ -18654,8 +18838,9 @@ body.dark-mode .input-error { background: #451a1a !important; }
     robs.forEach(function(r) { robMap[r.studyId] = r; });
 
     var assessed = studies.filter(function(s) {
-      var rob = s.rob || robMap[s.id] || {};
-      return rob.d1 || rob.d2 || rob.d3 || rob.d4 || rob.overall;
+      var rob = s.rob || {};
+      var sprint = robMap[s.id] || {};
+      return (rob.d1 || sprint.d1) || (rob.d2 || sprint.d2) || (rob.d3 || sprint.d3) || (rob.d4 || sprint.d4) || (rob.overall || sprint.overall);
     });
     if (!assessed.length) { showToast('No QUADAS-2 assessments found', 'warning'); return; }
 
