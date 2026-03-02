@@ -7868,15 +7868,15 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const mu2 = data.reduce((s, d, i) => s + d.y2 * w2_re[i], 0) / sumW2_re;
     const seMu1 = 1 / Math.sqrt(sumW1_re), seMu2 = 1 / Math.sqrt(sumW2_re);
     const critValue = n >= 30 ? normalQuantile(1 - alpha / 2) : tQuantile(1 - alpha / 2, Math.max(1, n - 2));
-    // Estimate rho
+    // Estimate rho from RE-weighted residuals (Reitsma et al. 2005)
     let rho = null;
     if (n > 2) {
-      const r1 = data.map((d, i) => (d.y1 - mu1_fe) * Math.sqrt(w1[i]));
-      const r2 = data.map((d, i) => (d.y2 - mu2_fe) * Math.sqrt(w2[i]));
+      const r1 = data.map((d, i) => (d.y1 - mu1) * Math.sqrt(w1_re[i]));
+      const r2 = data.map((d, i) => (d.y2 - mu2) * Math.sqrt(w2_re[i]));
       const mr1 = r1.reduce((a, b) => a + b, 0) / n, mr2 = r2.reduce((a, b) => a + b, 0) / n;
-      let cov = 0, v1 = 0, v2 = 0;
-      for (let i = 0; i < n; i++) { cov += (r1[i] - mr1) * (r2[i] - mr2); v1 += (r1[i] - mr1) ** 2; v2 += (r2[i] - mr2) ** 2; }
-      if (v1 > 0 && v2 > 0) rho = Math.max(-0.99, Math.min(0.99, cov / Math.sqrt(v1 * v2)));
+      let cov = 0, v1r = 0, v2r = 0;
+      for (let i = 0; i < n; i++) { cov += (r1[i] - mr1) * (r2[i] - mr2); v1r += (r1[i] - mr1) ** 2; v2r += (r2[i] - mr2) ** 2; }
+      if (v1r > 0 && v2r > 0) rho = Math.max(-0.99, Math.min(0.99, cov / Math.sqrt(v1r * v2r)));
     }
     const I2_sens_obj = I2ConfidenceInterval(Q1, n, confLevel);
     const I2_spec_obj = I2ConfidenceInterval(Q2, n, confLevel);
@@ -7902,17 +7902,24 @@ body.dark-mode .input-error { background: #451a1a !important; }
       sensCI_profile = [invLogit(plCI_sens[0]), invLogit(plCI_sens[1])];
       specCI_profile = [invLogit(plCI_spec[0]), invLogit(plCI_spec[1])];
     }
+    // PLR/NLR CIs via delta method on log scale
+    const cov12 = (rho ?? 0) * seMu1 * seMu2;
+    const seLogPLR = Math.sqrt((1 - pooledSens) ** 2 * seMu1 ** 2 + pooledSpec ** 2 * seMu2 ** 2 + 2 * (1 - pooledSens) * pooledSpec * cov12);
+    const seLogNLR = Math.sqrt(pooledSens ** 2 * seMu1 ** 2 + (1 - pooledSpec) ** 2 * seMu2 ** 2 - 2 * pooledSens * (1 - pooledSpec) * cov12);
+    const plrVal = sensLR / (1 - specLR), nlrVal = (1 - sensLR) / specLR;
+    const plrCI = [plrVal * Math.exp(-critValue * seLogPLR), plrVal * Math.exp(critValue * seLogPLR)];
+    const nlrCI = [nlrVal * Math.exp(-critValue * seLogNLR), nlrVal * Math.exp(critValue * seLogNLR)];
     return {
       pooledSens, pooledSpec,
-      plr: sensLR / (1 - specLR), nlr: (1 - sensLR) / specLR,
+      plr: plrVal, nlr: nlrVal, plrCI, nlrCI,
       dor: (sensLR * specLR) / ((1 - sensLR) * (1 - specLR)),
       sensCI: [invLogit(mu1 - critValue * seMu1), invLogit(mu1 + critValue * seMu1)],
       specCI: [invLogit(mu2 - critValue * seMu2), invLogit(mu2 + critValue * seMu2)],
       sensPredInt, specPredInt,
       sensCI_profile, specCI_profile,
-      dorCI: [Math.exp((mu1 + mu2) - critValue * Math.sqrt(seMu1 ** 2 + seMu2 ** 2 + 2 * (rho ?? 0) * seMu1 * seMu2)),
-              Math.exp((mu1 + mu2) + critValue * Math.sqrt(seMu1 ** 2 + seMu2 ** 2 + 2 * (rho ?? 0) * seMu1 * seMu2))],
-      mu1, mu2, seMu1, seMu2, covMu12: rho * seMu1 * seMu2,
+      dorCI: [Math.exp((mu1 + mu2) - critValue * Math.sqrt(seMu1 ** 2 + seMu2 ** 2 + 2 * cov12)),
+              Math.exp((mu1 + mu2) + critValue * Math.sqrt(seMu1 ** 2 + seMu2 ** 2 + 2 * cov12))],
+      mu1, mu2, seMu1, seMu2, covMu12: cov12,
       tau2_sens: tau2_1, tau2_spec: tau2_2,
       heterogeneity: { Q_sens: Q1, Q_spec: Q2, I2_sens, I2_spec, I2_sens_CI: (I2_sens_obj.I2_lo != null ? [I2_sens_obj.I2_lo, I2_sens_obj.I2_hi] : null), I2_spec_CI: (I2_spec_obj.I2_lo != null ? [I2_spec_obj.I2_lo, I2_spec_obj.I2_hi] : null), pQ_sens, pQ_spec, tau2_sens: tau2_1, tau2_spec: tau2_2 },
       rho, k: n, critValue, ciMethod: n >= 30 ? 'z-normal' : 'HKSJ-t', method: 'Bivariate DL (Reitsma-type)',
@@ -7949,7 +7956,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const mu1 = (LambdaRE + ThetaRE) / 2, mu2 = (LambdaRE - ThetaRE) / 2;
     const critVal = n >= 30 ? normalQuantile(1 - alpha / 2) : tQuantile(1 - alpha / 2, Math.max(1, n - 2));
     const varL = seLambda ** 2, varT = seTheta ** 2;
-    const covLT = studies.reduce((s, d, i) => s + wStarD[i] ** 2 * (d.varLogitSens - d.varLogitSpec), 0) / (sumWStarD ** 2);
+    const covLT = studies.reduce((s, d, i) => s + (wStarD[i] / sumWStarD) * (wStarS[i] / sumWStarS) * (d.varLogitSens - d.varLogitSpec), 0);
     const seMu1 = Math.sqrt(Math.max(0, (varL + varT + 2 * covLT) / 4));
     const seMu2 = Math.sqrt(Math.max(0, (varL + varT - 2 * covLT) / 4));
     const covMu12 = (varL - varT) / 4;
@@ -7976,14 +7983,16 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const ess = studies.map(d => 4 * d.diseased * d.healthy / d.n);
     const invSqrtESS = ess.map(e => 1 / Math.sqrt(e));
     const lDOR = studies.map(d => d.logDOR);
-    const meanX = invSqrtESS.reduce((a, b) => a + b, 0) / n;
-    const meanY = lDOR.reduce((a, b) => a + b, 0) / n;
+    // Deeks et al. (2005): ESS-weighted linear regression
+    const sumW = ess.reduce((a, b) => a + b, 0);
+    const meanX = ess.reduce((s, w, i) => s + w * invSqrtESS[i], 0) / sumW;
+    const meanY = ess.reduce((s, w, i) => s + w * lDOR[i], 0) / sumW;
     let ssXY = 0, ssXX = 0;
-    for (let i = 0; i < n; i++) { ssXY += (invSqrtESS[i] - meanX) * (lDOR[i] - meanY); ssXX += (invSqrtESS[i] - meanX) ** 2; }
+    for (let i = 0; i < n; i++) { ssXY += ess[i] * (invSqrtESS[i] - meanX) * (lDOR[i] - meanY); ssXX += ess[i] * (invSqrtESS[i] - meanX) ** 2; }
     if (ssXX < 1e-10) return { slope: 0, pValue: 1, significant: false, n, warning: 'No variance in ESS' };
     const slope = ssXY / ssXX, intercept = meanY - slope * meanX;
     const yPred = invSqrtESS.map(x => intercept + slope * x);
-    const residSE = Math.sqrt(lDOR.reduce((s, y, i) => s + (y - yPred[i]) ** 2, 0) / (n - 2));
+    const residSE = Math.sqrt(ess.reduce((s, w, i) => s + w * (lDOR[i] - yPred[i]) ** 2, 0) / ((n - 2) * sumW / n));
     const seSlope = residSE / Math.sqrt(ssXX);
     const t = slope / seSlope;
     const pValue = 2 * (1 - tCDFfn(Math.abs(t), n - 2));
@@ -8158,12 +8167,24 @@ body.dark-mode .input-error { background: #451a1a !important; }
     if (method === 'hsroc') {
       const hsroc = hsrocModel(prepared, confLevel);
       if (!hsroc) return null;
+      // Delta method PLR/NLR CIs for HSROC
+      const _hPlr = hsroc.sens / (1 - hsroc.spec), _hNlr = (1 - hsroc.sens) / hsroc.spec;
+      let _hPlrCI = null, _hNlrCI = null;
+      if (hsroc.seMu1 > 0 && hsroc.seMu2 > 0) {
+        const _hCov = (hsroc.covMu12 ?? 0);
+        const _hCrit = normalQuantile(1 - (1 - confLevel) / 2);
+        const _seLogPLR = Math.sqrt((1 - hsroc.sens) ** 2 * hsroc.seMu1 ** 2 + hsroc.spec ** 2 * hsroc.seMu2 ** 2 + 2 * (1 - hsroc.sens) * hsroc.spec * _hCov);
+        const _seLogNLR = Math.sqrt(hsroc.sens ** 2 * hsroc.seMu1 ** 2 + (1 - hsroc.spec) ** 2 * hsroc.seMu2 ** 2 - 2 * hsroc.sens * (1 - hsroc.spec) * _hCov);
+        _hPlrCI = [_hPlr * Math.exp(-_hCrit * _seLogPLR), _hPlr * Math.exp(_hCrit * _seLogPLR)];
+        _hNlrCI = [_hNlr * Math.exp(-_hCrit * _seLogNLR), _hNlr * Math.exp(_hCrit * _seLogNLR)];
+      }
       result = {
         pooledSens: hsroc.sens, pooledSpec: hsroc.spec,
         sensCI: hsroc.sensCI, specCI: hsroc.specCI,
-        plr: hsroc.sens / (1 - hsroc.spec), nlr: (1 - hsroc.sens) / hsroc.spec,
+        plr: _hPlr, nlr: _hNlr, plrCI: _hPlrCI, nlrCI: _hNlrCI,
         dor: hsroc.dor, dorCI: hsroc.dorCI, auc: hsroc.auc,
         mu1: hsroc.mu1, mu2: hsroc.mu2, seMu1: hsroc.seMu1, seMu2: hsroc.seMu2, covMu12: hsroc.covMu12,
+        // HSROC assumes equal variances (Harbord 2007): tau2_sens = tau2_spec = (sigma2_a + sigma2_t)/4
         tau2_sens: (hsroc.sigma2_alpha + hsroc.sigma2_theta) / 4,
         tau2_spec: (hsroc.sigma2_alpha + hsroc.sigma2_theta) / 4,
         heterogeneity: { I2_sens: hsroc.I2_accuracy, I2_spec: hsroc.I2_threshold, sigma2_alpha: hsroc.sigma2_alpha, sigma2_theta: hsroc.sigma2_theta, Lambda: hsroc.Lambda, Theta: hsroc.Theta },
@@ -8177,7 +8198,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
         sensCI: biv.sensCI, specCI: biv.specCI,
         sensPredInt: biv.sensPredInt, specPredInt: biv.specPredInt,
         sensCI_profile: biv.sensCI_profile, specCI_profile: biv.specCI_profile,
-        plr: biv.plr, nlr: biv.nlr, dor: biv.dor, dorCI: biv.dorCI, auc: null,
+        plr: biv.plr, nlr: biv.nlr, plrCI: biv.plrCI, nlrCI: biv.nlrCI,
+        dor: biv.dor, dorCI: biv.dorCI, auc: null,
         mu1: biv.mu1, mu2: biv.mu2, seMu1: biv.seMu1, seMu2: biv.seMu2, covMu12: biv.covMu12,
         tau2_sens: biv.tau2_sens, tau2_spec: biv.tau2_spec,
         heterogeneity: biv.heterogeneity, rho: biv.rho, k: biv.k,
@@ -8254,7 +8276,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
   function renderComparativeDTA(compResult, container) {
     if (!compResult || !container) return;
     var html = '<h4 style="margin-bottom:8px">Comparative DTA</h4>';
-    html += '<p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:8px">Side-by-side comparison of index tests with 2+ studies each.' +
+    html += '<p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:8px">Side-by-side comparison of index tests with 2+ studies each. ' +
+      '<strong>Note:</strong> Z-tests assume independent samples. If the same patients were tested with multiple index tests, these p-values may be anti-conservative.' +
       (compResult.excludedTests && compResult.excludedTests.length > 0 ? ' <em>Excluded: ' + compResult.excludedTests.map(function(t) { return escapeHtml(t); }).join(', ') + '</em>' : '') + '</p>';
     html += '<table style="width:100%;font-size:0.82rem;border-collapse:collapse">';
     html += '<thead><tr style="border-bottom:2px solid var(--border)">' +
@@ -8585,7 +8608,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
       else domains.riskOfBias = 0;
       domains.robNotAssessed = false;
     } else {
-      domains.riskOfBias = 0;
+      domains.riskOfBias = -1; // Default to "serious" when RoB not yet assessed
       domains.robNotAssessed = true;
     }
     certainty += domains.riskOfBias;
@@ -8690,15 +8713,36 @@ body.dark-mode .input-error { background: #451a1a !important; }
     var fpLo = Math.round(healthy * (1 - specHi));
     var fpHi = Math.round(healthy * (1 - specLo));
 
-    // GRADE certainty
+    // GRADE-DTA: separate certainty for sensitivity-driven (TP/FN) vs specificity-driven (TN/FP)
     var grade = computeGRADE(result, result.studyData);
-    var certaintyLabel = grade ? grade.label : 'Not assessed';
-    var certaintySymbol = '+ooo';
+    var symMap = { 4: '++++', 3: '+++o', 2: '++oo', 1: '+ooo' };
+    var labels = { 4: 'HIGH', 3: 'MODERATE', 2: 'LOW', 1: 'VERY LOW' };
+    var colors = { 4: '#10b981', 3: '#3b82f6', 2: '#f59e0b', 1: '#ef4444' };
+    // Sensitivity-driven: use I2_sens for inconsistency, sensCI width for imprecision
+    var gradeSens = grade ? Object.assign({}, grade) : null;
+    var gradeSpec = grade ? Object.assign({}, grade) : null;
     if (grade) {
-      var symMap = { 4: '++++', 3: '+++o', 2: '++oo', 1: '+ooo' };
-      certaintySymbol = symMap[grade.certainty] ?? '+ooo';
+      var i2Sens_g = result.heterogeneity?.I2_sens ?? result.I2_sens ?? 0;
+      var i2Spec_g = result.heterogeneity?.I2_spec ?? result.I2_spec ?? 0;
+      var sensCIWidth_g = (sensHi - sensLo);
+      var specCIWidth_g = (specHi - specLo);
+      var k_g = result.k ?? 0;
+      // Recompute inconsistency + imprecision separately
+      var incSens = i2Sens_g > 75 ? -2 : i2Sens_g > 50 ? -1 : 0;
+      var incSpec = i2Spec_g > 75 ? -2 : i2Spec_g > 50 ? -1 : 0;
+      var impSens = (sensCIWidth_g > 0.30 && k_g < 5) ? -2 : sensCIWidth_g > 0.20 ? -1 : 0;
+      var impSpec = (specCIWidth_g > 0.30 && k_g < 5) ? -2 : specCIWidth_g > 0.20 ? -1 : 0;
+      // Base = 4 + shared domains (RoB, indirectness, pubBias)
+      var sharedDown = (grade.domains.riskOfBias ?? 0) + (grade.domains.indirectness ?? 0) + (grade.domains.publicationBias ?? 0);
+      var certSens = Math.max(1, Math.min(4, 4 + sharedDown + incSens + impSens));
+      var certSpec = Math.max(1, Math.min(4, 4 + sharedDown + incSpec + impSpec));
+      gradeSens = { certainty: certSens, label: labels[certSens], color: colors[certSens] };
+      gradeSpec = { certainty: certSpec, label: labels[certSpec], color: colors[certSpec] };
     }
-    var certaintyColor = grade ? grade.color : 'var(--text-muted)';
+    function _gradeCell(g) {
+      if (!g) return { label: 'Not assessed', symbol: '+ooo', color: 'var(--text-muted)' };
+      return { label: g.label, symbol: symMap[g.certainty] ?? '+ooo', color: g.color };
+    }
 
     // Participants and studies
     var k = result.k ?? 0;
@@ -8722,34 +8766,53 @@ body.dark-mode .input-error { background: #451a1a !important; }
 
     var rows = [
       { label: 'True positives (correctly identified)', val: tp, lo: tpLo, hi: tpHi,
-        color: 'var(--success)', explain: 'These patients will be correctly diagnosed and receive appropriate treatment.' },
+        color: 'var(--success)', explain: 'These patients will be correctly diagnosed and receive appropriate treatment.', grade: gradeSens },
       { label: 'False negatives (missed)', val: fn, lo: fnLo, hi: fnHi,
-        color: 'var(--danger)', explain: 'These patients will be missed. Disease may progress without treatment.' },
+        color: 'var(--danger)', explain: 'These patients will be missed. Disease may progress without treatment.', grade: gradeSens },
       { label: 'True negatives (correctly excluded)', val: tn, lo: tnLo, hi: tnHi,
-        color: 'var(--success)', explain: 'These patients will be correctly reassured they do not have the condition.' },
+        color: 'var(--success)', explain: 'These patients will be correctly reassured they do not have the condition.', grade: gradeSpec },
       { label: 'False positives (false alarms)', val: fp, lo: fpLo, hi: fpHi,
-        color: 'var(--warning)', explain: 'These patients will undergo unnecessary further work-up or treatment.' }
+        color: 'var(--warning)', explain: 'These patients will undergo unnecessary further work-up or treatment.', grade: gradeSpec }
     ];
 
-    rows.forEach(function(row) {
+    // Group header for sensitivity-driven outcomes
+    html += '<tr style="background:var(--surface)"><td colspan="5" style="padding:4px 8px;font-size:0.78rem;font-weight:700;color:var(--primary)">Sensitivity-driven outcomes (test positives among diseased)</td></tr>';
+    for (var ri = 0; ri < 2; ri++) {
+      var row = rows[ri], gc = _gradeCell(row.grade);
       html += '<tr style="border-bottom:1px solid var(--border)">';
-      html += '<td style="padding:6px 8px;font-weight:600">' + escapeHtml(row.label) + '</td>';
+      html += '<td style="padding:6px 8px 6px 16px;font-weight:600">' + escapeHtml(row.label) + '</td>';
       html += '<td style="text-align:center;padding:6px 8px;color:' + row.color + ';font-weight:600">' +
         row.val + ' <span style="font-weight:400;font-size:0.78rem">(' + row.lo + ' to ' + row.hi + ')</span></td>';
       html += '<td style="text-align:center;padding:6px 8px">' + escapeHtml(partLabel) + '</td>';
       html += '<td style="text-align:center;padding:6px 8px"><span style="font-family:monospace;font-weight:700;color:' +
-        certaintyColor + '" title="' + escapeHtml(certaintyLabel) + '">' + certaintySymbol + '</span><br>' +
-        '<span style="font-size:0.72rem;color:var(--text-muted)">' + escapeHtml(certaintyLabel) + '</span></td>';
+        gc.color + '" title="' + escapeHtml(gc.label) + '">' + gc.symbol + '</span><br>' +
+        '<span style="font-size:0.72rem;color:var(--text-muted)">' + escapeHtml(gc.label) + '</span></td>';
       html += '<td style="padding:6px 8px;font-size:0.78rem;color:var(--text-muted)">' + escapeHtml(row.explain) + '</td>';
       html += '</tr>';
-    });
+    }
+    // Group header for specificity-driven outcomes
+    html += '<tr style="background:var(--surface)"><td colspan="5" style="padding:4px 8px;font-size:0.78rem;font-weight:700;color:var(--info)">Specificity-driven outcomes (test negatives among non-diseased)</td></tr>';
+    for (var ri2 = 2; ri2 < 4; ri2++) {
+      var row2 = rows[ri2], gc2 = _gradeCell(row2.grade);
+      html += '<tr style="border-bottom:1px solid var(--border)">';
+      html += '<td style="padding:6px 8px 6px 16px;font-weight:600">' + escapeHtml(row2.label) + '</td>';
+      html += '<td style="text-align:center;padding:6px 8px;color:' + row2.color + ';font-weight:600">' +
+        row2.val + ' <span style="font-weight:400;font-size:0.78rem">(' + row2.lo + ' to ' + row2.hi + ')</span></td>';
+      html += '<td style="text-align:center;padding:6px 8px">' + escapeHtml(partLabel) + '</td>';
+      html += '<td style="text-align:center;padding:6px 8px"><span style="font-family:monospace;font-weight:700;color:' +
+        gc2.color + '" title="' + escapeHtml(gc2.label) + '">' + gc2.symbol + '</span><br>' +
+        '<span style="font-size:0.72rem;color:var(--text-muted)">' + escapeHtml(gc2.label) + '</span></td>';
+      html += '<td style="padding:6px 8px;font-size:0.78rem;color:var(--text-muted)">' + escapeHtml(row2.explain) + '</td>';
+      html += '</tr>';
+    }
 
     html += '</tbody></table>';
     html += '<p style="font-size:0.72rem;color:var(--text-muted);margin-top:6px;line-height:1.4">' +
       'Prevalence: ' + (prevalence * 100).toFixed(0) + '%. ' +
       'Pooled sensitivity: ' + (sens * 100).toFixed(1) + '% (' + confPct + '% CI: ' + (sensLo * 100).toFixed(1) + ' to ' + (sensHi * 100).toFixed(1) + '). ' +
       'Pooled specificity: ' + (spec * 100).toFixed(1) + '% (' + confPct + '% CI: ' + (specLo * 100).toFixed(1) + ' to ' + (specHi * 100).toFixed(1) + '). ' +
-      'GRADE-DTA certainty: ' + escapeHtml(certaintyLabel) + '. ' +
+      'GRADE-DTA certainty: sensitivity-driven ' + (gradeSens ? escapeHtml(gradeSens.label) : 'N/A') +
+      ', specificity-driven ' + (gradeSpec ? escapeHtml(gradeSpec.label) : 'N/A') + '. ' +
       'Estimates computed using the Cochrane GRADE-DTA framework.</p>';
     return html;
   }
@@ -9375,8 +9438,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
 
     const rowH = 28, headerH = 45, footerH = 55, pad = 20;
     const h = headerH + k * rowH + footerH + pad;
-    const totalW = 900;
-    const centerW = 120;
+    const totalW = 950;
+    const centerW = 160;
     const panelW = (totalW - centerW) / 2;
     const sensLeft = 0;
     const centerLeft = panelW, centerRight = panelW + centerW;
@@ -9385,7 +9448,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const sensScale = v => sensLeft + 20 + v * (panelW - 40);
     const specScale = v => specLeft + 20 + v * (panelW - 40);
 
-    let svg = '<svg viewBox="0 0 ' + totalW + ' ' + h + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Coupled sensitivity-specificity forest plot" style="max-width:900px;width:100%;font-family:var(--font)">';
+    let svg = '<svg viewBox="0 0 ' + totalW + ' ' + h + '" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Coupled sensitivity-specificity forest plot" style="max-width:950px;width:100%;font-family:var(--font)">';
 
     // Header
     svg += '<text x="' + (sensLeft + panelW / 2) + '" y="20" text-anchor="middle" font-size="12" font-weight="bold" fill="var(--text)">Sensitivity (' + confPct + '% CI)</text>';
@@ -9401,7 +9464,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
       const y = headerH + i * rowH + rowH / 2;
 
       // Study label (center)
-      svg += '<text x="' + (centerLeft + centerW / 2) + '" y="' + (y + 4) + '" text-anchor="middle" font-size="10" fill="var(--text)">' + escapeHtml((s.authorYear || s.author || '').slice(0, 18)) + '</text>';
+      svg += '<text x="' + (centerLeft + centerW / 2) + '" y="' + (y + 4) + '" text-anchor="middle" font-size="10" fill="var(--text)">' + escapeHtml((s.authorYear || s.author || '').slice(0, 25)) + '</text>';
 
       // Sensitivity (left panel)
       const nSens = s.tp + s.fn;
@@ -9663,7 +9726,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
     const warnMsgs = [];
     const blockMsgs = [];
     if (rawMethod === 'univariate') {
-      warnMsgs.push('Note: Univariate DL+HKSJ is applied separately to logit(Sens) and logit(Spec). Results are labeled "Bivariate DL" as the pooling structure is equivalent for marginal estimates.');
+      warnMsgs.push('Note: Univariate DL+HKSJ is applied separately to logit(Sens) and logit(Spec). The bivariate correlation (rho) is estimated from residuals but each parameter is pooled independently.');
     }
     // Check for valid DTA data (TP/FP/FN/TN)
     const valid = extractedStudies.filter(s => {
@@ -9689,6 +9752,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
 
     const result = computeDTAAnalysis(valid, confLevel, method);
     if (!result) { showToast('DTA analysis failed. Check study data.', 'warning'); return; }
+    if (rawMethod === 'univariate') result.method = 'Univariate DL+HKSJ';
     lastAnalysisResult = result;
 
     // P0-3: Store result in DOM so _getLastAnalysis() can retrieve it
@@ -9712,8 +9776,10 @@ body.dark-mode .input-error { background: #451a1a !important; }
       '<div class="stat-card"><div class="stat-label">Spec ' + confPct + '% CI</div><div class="stat-value">[' + (result.specCI[0] * 100).toFixed(1) + ', ' + (result.specCI[1] * 100).toFixed(1) + ']</div></div>' +
       (result.specPredInt && result.k >= 3 ? '<div class="stat-card" title="Prediction interval: range where a future study\'s true specificity is expected to fall"><div class="stat-label">Spec PI</div><div class="stat-value">[' + (result.specPredInt[0] * 100).toFixed(1) + ', ' + (result.specPredInt[1] * 100).toFixed(1) + ']</div></div>' : '') +
       (result.specCI_profile ? '<div class="stat-card" title="Profile likelihood CI (more accurate than Wald for small k or boundary estimates)"><div class="stat-label">Spec Profile CI</div><div class="stat-value">[' + (result.specCI_profile[0] * 100).toFixed(1) + ', ' + (result.specCI_profile[1] * 100).toFixed(1) + ']</div></div>' : '') +
-      '<div class="stat-card" title="Positive Likelihood Ratio = Sens/(1-Spec). PLR>10 strongly rules in disease"><div class="stat-label">PLR</div><div class="stat-value">' + result.plr.toFixed(2) + '</div></div>' +
-      '<div class="stat-card" title="Negative Likelihood Ratio = (1-Sens)/Spec. NLR<0.1 strongly rules out disease"><div class="stat-label">NLR</div><div class="stat-value">' + result.nlr.toFixed(3) + '</div></div>' +
+      '<div class="stat-card" title="Positive Likelihood Ratio = Sens/(1-Spec). PLR>10 strongly rules in disease"><div class="stat-label">PLR</div><div class="stat-value">' + result.plr.toFixed(2) +
+      (result.plrCI ? ' <span style="font-size:0.7em;color:var(--text-muted)">[' + result.plrCI[0].toFixed(2) + ', ' + result.plrCI[1].toFixed(2) + ']</span>' : '') + '</div></div>' +
+      '<div class="stat-card" title="Negative Likelihood Ratio = (1-Sens)/Spec. NLR<0.1 strongly rules out disease"><div class="stat-label">NLR</div><div class="stat-value">' + result.nlr.toFixed(3) +
+      (result.nlrCI ? ' <span style="font-size:0.7em;color:var(--text-muted)">[' + result.nlrCI[0].toFixed(3) + ', ' + result.nlrCI[1].toFixed(3) + ']</span>' : '') + '</div></div>' +
       '<div class="stat-card" title="Diagnostic Odds Ratio = (TP×TN)/(FP×FN). Higher = better overall discrimination"><div class="stat-label">DOR</div><div class="stat-value">' + result.dor.toFixed(1) +
       (result.dorCI ? ' <span style="font-size:0.7em;color:var(--text-muted)">[' + result.dorCI[0].toFixed(1) + ', ' + result.dorCI[1].toFixed(1) + ']</span>' : '') + '</div></div>';
     if (result.auc != null) {
@@ -10782,12 +10848,17 @@ body.dark-mode .input-error { background: #451a1a !important; }
       rLines.push('');
       rLines.push('# 2. SROC plot with confidence and prediction regions');
       rLines.push('plot(fit, sroclwd=2, main="Summary ROC Curve", level = conf.level)');
-      rLines.push('points(fpr(fit), sens(fit), pch=2)');
+      rLines.push('s <- summary(fit)');
+      rLines.push('points(plogis(s$coefficients["tfpr.", "Estimate"]), plogis(s$coefficients["tsens.", "Estimate"]), pch=2, col="red", cex=1.5)');
       rLines.push('');
-      rLines.push('# 3. Forest plots');
+      rLines.push('# 3. HSROC model (alternative parametrization)');
+      rLines.push('fit_hsroc <- crosshair(dat)');
+      rLines.push('summary(fit_hsroc)');
+      rLines.push('');
+      rLines.push('# 4. Forest plots');
       rLines.push('forest(fit, main="Coupled Forest Plot", level = conf.level)');
       rLines.push('');
-      rLines.push('# 4. Leave-one-out sensitivity analysis');
+      rLines.push('# 5. Leave-one-out sensitivity analysis');
       rLines.push('cat("\\n--- Leave-One-Out Analysis ---\\n")');
       rLines.push('loo_results <- data.frame(');
       rLines.push('  excluded = character(), sens = numeric(), spec = numeric(),');
@@ -10807,16 +10878,25 @@ body.dark-mode .input-error { background: #451a1a !important; }
       rLines.push('}');
       rLines.push('print(loo_results)');
       rLines.push('');
-      rLines.push('# 5. Threshold effect test (Spearman rho between logit(Sens) and logit(FPR))');
+      rLines.push('# 6. Threshold effect test (Spearman rho between logit(Sens) and logit(FPR))');
       rLines.push('logit_sens <- qlogis((dat$TP + 0.5) / (dat$TP + dat$FN + 1))  # +0.5 continuity correction');
       rLines.push('logit_fpr  <- qlogis((dat$FP + 0.5) / (dat$FP + dat$TN + 1))');
       rLines.push('cat("\\n--- Threshold Effect Test ---\\n")');
       rLines.push('print(cor.test(logit_sens, logit_fpr, method = "spearman"))');
+      rLines.push('');
+      rLines.push('# 7. Deeks funnel test for publication bias');
+      rLines.push('ess <- 4 * dat$TP * dat$TN / (dat$TP + dat$FP + dat$FN + dat$TN)');
+      rLines.push('inv_sqrt_ess <- 1 / sqrt(ess)');
+      rLines.push('log_dor <- log((dat$TP + 0.5) * (dat$TN + 0.5) / ((dat$FP + 0.5) * (dat$FN + 0.5)))');
+      rLines.push('deeks_fit <- lm(log_dor ~ inv_sqrt_ess, weights = ess)');
+      rLines.push('cat("\\n--- Deeks Funnel Test ---\\n")');
+      rLines.push('cat("Slope p-value:", summary(deeks_fit)$coefficients[2, 4], "\\n")');
+      rLines.push('cat("Significant asymmetry (p<0.10):", summary(deeks_fit)$coefficients[2, 4] < 0.10, "\\n")');
       // Conditional subgroup code
       const hasSubgroups = studies.some(s => (s.subgroup || '').trim());
       if (hasSubgroups) {
         rLines.push('');
-        rLines.push('# 6. Subgroup analysis');
+        rLines.push('# 8. Subgroup analysis');
         rLines.push('subgroup <- c(' + studies.map(s => '"' + (s.subgroup || '').replace(/["\\\n\r]/g, '') + '"').join(', ') + ')');
         rLines.push('dat$subgroup <- subgroup');
         rLines.push('for (sg in unique(subgroup[subgroup != ""])) {');
@@ -18587,7 +18667,9 @@ body.dark-mode .input-error { background: #451a1a !important; }
           'The diagnostic odds ratio was ' + (result.dor != null ? result.dor.toFixed(2) : 'N/A') +
           (result.dorCI ? ' (' + confPct + '% CI ' + result.dorCI[0].toFixed(2) + ' to ' + result.dorCI[1].toFixed(2) + ')' : '') +
           ', positive likelihood ratio ' + (result.plr != null ? result.plr.toFixed(2) : 'N/A') +
-          ', and negative likelihood ratio ' + (result.nlr != null ? result.nlr.toFixed(3) : 'N/A') + '. ' +
+          (result.plrCI ? ' (' + confPct + '% CI ' + result.plrCI[0].toFixed(2) + ' to ' + result.plrCI[1].toFixed(2) + ')' : '') +
+          ', and negative likelihood ratio ' + (result.nlr != null ? result.nlr.toFixed(3) : 'N/A') +
+          (result.nlrCI ? ' (' + confPct + '% CI ' + result.nlrCI[0].toFixed(3) + ' to ' + result.nlrCI[1].toFixed(3) + ')' : '') + '. ' +
           (result.auc != null ? 'The area under the SROC curve was ' + result.auc.toFixed(3) + '. ' : '')
         : 'No quantitative synthesis was produced because fewer than 2 studies had complete 2x2 data.') + '\n\n' +
       '### Heterogeneity\n' +
@@ -18756,7 +18838,7 @@ body.dark-mode .input-error { background: #451a1a !important; }
 
   function exportCharacteristicsTable() {
     if (!extractedStudies || !extractedStudies.length) { showToast('No studies extracted', 'warning'); return; }
-    var header = 'Author/Year,Index Test,Threshold,Population,N (Diseased),N (Healthy),Total N,Prevalence (%)';
+    var header = 'Author/Year,Index Test,Threshold,Reference Standard,Population,TP,FP,FN,TN,N (Diseased),N (Healthy),Total N,Prevalence (%),Subgroup';
     var rows = extractedStudies.filter(function(s) {
       return s.tp != null && s.tn != null;
     }).map(function(s) {
@@ -18769,8 +18851,11 @@ body.dark-mode .input-error { background: #451a1a !important; }
         csvSafeCell(s.authorYear || s.studyId || ''),
         csvSafeCell(s.indexTest || ''),
         csvSafeCell(s.threshold || ''),
+        csvSafeCell(s.referenceStandard || ''),
         csvSafeCell(s.analysisPopulation || s.population || ''),
-        diseased, healthy, n, prev
+        tp, fp, fn, tn,
+        diseased, healthy, n, prev,
+        csvSafeCell(s.subgroup || '')
       ].join(',');
     });
     downloadFile(header + '\n' + rows.join('\n'), 'table1-characteristics.csv', 'text/csv');
@@ -18812,8 +18897,8 @@ body.dark-mode .input-error { background: #451a1a !important; }
       ['Pooled Sensitivity (%)', (r.pooledSens*100).toFixed(1), (r.sensCI[0]*100).toFixed(1), (r.sensCI[1]*100).toFixed(1), r.sensPredInt ? (r.sensPredInt[0]*100).toFixed(1) : '', r.sensPredInt ? (r.sensPredInt[1]*100).toFixed(1) : ''],
       ['Pooled Specificity (%)', (r.pooledSpec*100).toFixed(1), (r.specCI[0]*100).toFixed(1), (r.specCI[1]*100).toFixed(1), r.specPredInt ? (r.specPredInt[0]*100).toFixed(1) : '', r.specPredInt ? (r.specPredInt[1]*100).toFixed(1) : ''],
       ['DOR', r.dor.toFixed(2), r.dorCI ? r.dorCI[0].toFixed(2) : '', r.dorCI ? r.dorCI[1].toFixed(2) : '', '', ''],
-      ['PLR', r.plr.toFixed(2), '', '', '', ''],
-      ['NLR', r.nlr.toFixed(3), '', '', '', ''],
+      ['PLR', r.plr.toFixed(2), r.plrCI ? r.plrCI[0].toFixed(2) : '', r.plrCI ? r.plrCI[1].toFixed(2) : '', '', ''],
+      ['NLR', r.nlr.toFixed(3), r.nlrCI ? r.nlrCI[0].toFixed(3) : '', r.nlrCI ? r.nlrCI[1].toFixed(3) : '', '', ''],
       ['AUC', r.auc != null ? r.auc.toFixed(3) : '', '', '', '', ''],
       ['I2 Sensitivity (%)', (het.I2_sens ?? 0).toFixed(1), het.I2_sens_CI ? het.I2_sens_CI[0].toFixed(1) : '', het.I2_sens_CI ? het.I2_sens_CI[1].toFixed(1) : '', '', ''],
       ['I2 Specificity (%)', (het.I2_spec ?? 0).toFixed(1), het.I2_spec_CI ? het.I2_spec_CI[0].toFixed(1) : '', het.I2_spec_CI ? het.I2_spec_CI[1].toFixed(1) : '', '', ''],
