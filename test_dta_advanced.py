@@ -12,6 +12,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='repla
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 
 passed = 0
 failed = 0
@@ -46,7 +47,9 @@ opts.add_argument('--window-size=1400,900')
 opts.set_capability('goog:loggingPrefs', {'browser': 'SEVERE'})
 
 html_path = 'file:///' + os.path.abspath('metasprint-dta.html').replace('\\', '/')
-driver = webdriver.Chrome(options=opts)
+_cd = os.environ.get('SE_CHROMEDRIVER', '')
+_svc = Service(executable_path=_cd) if _cd else Service()
+driver = webdriver.Chrome(options=opts, service=_svc)
 driver.get(html_path)
 time.sleep(3)
 

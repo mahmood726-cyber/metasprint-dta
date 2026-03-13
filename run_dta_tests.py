@@ -48,6 +48,30 @@ SUITES = [
         'requires_browser': True,
         'slow': False,
     },
+    {
+        'name': 'New Features (B1-B4, S3-S8, Q1-Q17)',
+        'script': 'test_dta_new_features.py',
+        'requires_browser': True,
+        'slow': False,
+    },
+    {
+        'name': 'Improvements v2 (P0-P2 fixes + features)',
+        'script': 'test_dta_improvements_v2.py',
+        'requires_browser': True,
+        'slow': False,
+    },
+    {
+        'name': 'Extended Insights (8 tabs)',
+        'script': 'test_dta_insights_extended.py',
+        'requires_browser': True,
+        'slow': False,
+    },
+    {
+        'name': 'Export Functions (CSV/JSON/HTML)',
+        'script': 'test_dta_exports.py',
+        'requires_browser': True,
+        'slow': False,
+    },
 ]
 
 TRANSIENT_RETRIES = 1
@@ -68,12 +92,32 @@ def parse_summary(output):
         failed = len(re.findall(r'^\s*FAIL:', output, re.MULTILINE))
     return passed, failed
 
+def find_chromedriver():
+    """Find cached chromedriver path."""
+    import glob
+    home = os.path.expanduser('~')
+    paths = sorted(glob.glob(os.path.join(home, '.cache', 'selenium', 'chromedriver', 'win64', '*', 'chromedriver.exe')))
+    return paths[-1] if paths else None
+
 def check_browser():
     """Check if Chrome/chromedriver is available."""
+    cd_path = find_chromedriver()
+    if cd_path:
+        os.environ['SE_CHROMEDRIVER'] = cd_path
     try:
+        check_code = (
+            'import os; from selenium import webdriver; '
+            'from selenium.webdriver.chrome.options import Options; '
+            'from selenium.webdriver.chrome.service import Service; '
+            'o=Options(); o.add_argument("--headless=new"); '
+            'cd=os.environ.get("SE_CHROMEDRIVER",""); '
+            'svc=Service(executable_path=cd) if cd else Service(); '
+            'd=webdriver.Chrome(options=o, service=svc); d.quit(); print("OK")'
+        )
         result = subprocess.run(
-            [PYTHON, '-c', 'from selenium import webdriver; from selenium.webdriver.chrome.options import Options; o=Options(); o.add_argument("--headless=new"); d=webdriver.Chrome(options=o); d.quit(); print("OK")'],
-            capture_output=True, text=True, timeout=30
+            [PYTHON, '-c', check_code],
+            capture_output=True, text=True, timeout=60,
+            env={**os.environ}
         )
         return 'OK' in result.stdout
     except Exception as e:
