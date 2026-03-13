@@ -4571,7 +4571,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     // Fetch additional pages (up to 5 pages = 500 results max)
     const hitCount = data1.hitCount || 0;
     let cursor = data1.nextCursorMark || '*';
-    const maxPages = 3; // 300 results max — balances recall vs API speed
+    const maxPages = 5; // 500 results max — broader recall for niche topics
     for (let page = 2; page <= maxPages && results.length < hitCount; page++) {
       try {
         if (statusCb) statusCb('Europe PMC page ' + page + '/' + maxPages + ' (' + hitCount + ' total hits)...');
@@ -4612,6 +4612,77 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         source: 'openalex'
       };
     });
+  }
+
+  // --- PubMed E-utilities direct search (4th source) ---
+  async function searchPubMedDirect(condition, indexTest, statusCb) {
+    if (statusCb) statusCb('Searching PubMed E-utilities...');
+    const expanded = expandIndexTestForSearch(indexTest);
+    // Use first synonym for PubMed (doesn't handle complex OR well in esearch)
+    const testTerm = expanded !== indexTest
+      ? expanded.replace(/^\(/, '').split(/\s+OR\s+/)[0].replace(/[")]/g, '').trim()
+      : indexTest;
+    // PubMed MeSH-aware search with DTA filter
+    const query = encodeURIComponent(
+      '(' + condition + ') AND (' + testTerm + ') AND ("Sensitivity and Specificity"[MeSH] OR "Predictive Value of Tests"[MeSH] OR sensitivity[tiab] OR specificity[tiab] OR "diagnostic accuracy"[tiab])'
+    );
+    try {
+      // Step 1: esearch to get PMIDs
+      const searchUrl = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=' + query + '&retmax=200&retmode=json&sort=relevance';
+      const searchResp = await fetchWithTimeout(searchUrl, 15000);
+      if (!searchResp.ok) return [];
+      const searchData = await searchResp.json();
+      const pmids = searchData?.esearchresult?.idlist || [];
+      if (pmids.length === 0) return [];
+
+      if (statusCb) statusCb('PubMed: fetching ' + pmids.length + ' abstracts...');
+
+      // Step 2: efetch to get full abstracts (batch up to 200)
+      const fetchUrl = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=' + pmids.join(',') + '&rettype=xml&retmode=xml';
+      const fetchResp = await fetchWithTimeout(fetchUrl, 25000);
+      if (!fetchResp.ok) return [];
+      const xmlText = await fetchResp.text();
+
+      const results = [];
+      const articleBlocks = xmlText.split(/<PubmedArticle\b/i).slice(1);
+      for (const block of articleBlocks) {
+        const pmidM = block.match(/<PMID[^>]*>(\d+)<\/PMID>/i);
+        if (!pmidM) continue;
+        // Extract title
+        const titleM = block.match(/<ArticleTitle>([\s\S]*?)<\/ArticleTitle>/i);
+        const title = titleM ? titleM[1].replace(/<[^>]+>/g, '').trim() : '';
+        // Extract abstract (structured sections)
+        const absTexts = [];
+        const absRegex = /<AbstractText(?:\s+Label="([^"]*)")?[^>]*>([\s\S]*?)<\/AbstractText>/gi;
+        let absM;
+        while ((absM = absRegex.exec(block)) !== null) {
+          const label = absM[1] ? absM[1] + ': ' : '';
+          const content = absM[2].replace(/<[^>]+>/g, '').trim();
+          if (content) absTexts.push(label + content);
+        }
+        // Extract DOI
+        const doiM = block.match(/<ArticleId\s+IdType="doi"[^>]*>([^<]+)<\/ArticleId>/i);
+        // Extract year
+        const yearM = block.match(/<PubDate>[\s\S]*?<Year>(\d{4})<\/Year>/i);
+        // Extract journal
+        const journalM = block.match(/<Title>([\s\S]*?)<\/Title>/i);
+
+        results.push({
+          pmid: pmidM[1],
+          doi: doiM ? doiM[1] : '',
+          title: title,
+          year: yearM ? parseInt(yearM[1]) : 0,
+          abstract: absTexts.join(' '),
+          journal: journalM ? journalM[1].replace(/<[^>]+>/g, '').trim() : '',
+          nctId: extractNCTFromText(absTexts.join(' ') + ' ' + title),
+          source: 'pubmed-direct'
+        });
+      }
+      return results;
+    } catch (e) {
+      console.warn('PubMed direct search failed:', e.message);
+      return [];
+    }
   }
 
   function reconstructOAAbstract(inv) {
@@ -5231,6 +5302,49 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     const npvM = text.match(/(?:negative predictive|npv)\s*(?:value\s*)?(?:was\s*|of\s*|[=:]\s*)?(\d+\.?\d*)\s*%?/i);
     if (npvM) { result.npv = parseFloat(npvM[1]); if (result.npv > 1) result.npv /= 100; }
 
+    // NPV+prevalence → derive sensitivity (for rule-out tests like troponin)
+    // Sens = (NPV * (1-prev)) / (NPV * (1-prev) + (1-NPV) * prev)... simplified:
+    // If NPV and prevalence known: sens = 1 - (prev * (1 - NPV)) / ((1 - NPV) * prev + NPV * (1 - prev))
+    // Actually: NPV = TN/(TN+FN) = Spec*(1-prev) / (Spec*(1-prev) + (1-Sens)*prev)
+    // Solving for Sens: Sens = 1 - (1-NPV)*(1-prev) * N / (prev * N) ... needs Spec too
+    // Simpler: if we have PPV + NPV + prevalence, we can derive sens and spec
+    if (result.sensitivity == null && result.ppv != null && result.npv != null) {
+      const prev = result.prevalence;
+      if (prev != null && prev > 0 && prev < 1) {
+        // From Bayes: Sens = PPV * (prev + (1-prev)/LR-) ... but simpler:
+        // PPV = Sens*prev / (Sens*prev + (1-Spec)*(1-prev))
+        // NPV = Spec*(1-prev) / (Spec*(1-prev) + (1-Sens)*prev)
+        // From PPV: LR+ = PPV*(1-prev) / ((1-PPV)*prev)
+        // From NPV: LR- = (1-NPV)*(1-prev) / (NPV*prev)  ... no, NPV gives: LR- = (1-NPV)*prev / (NPV*(1-prev))... wrong
+        // Direct: Sens = PPV * (1-prev) / ((1-PPV)*prev) * (1-Spec)... circular without Spec
+        // Better approach: derive from PPV+NPV+prev using 2x2 algebra
+        // TP = Sens*prev*N, FP = (1-Spec)*(1-prev)*N, FN = (1-Sens)*prev*N, TN = Spec*(1-prev)*N
+        // PPV = TP/(TP+FP), NPV = TN/(TN+FN)
+        // From PPV: Sens*prev / (Sens*prev + (1-Spec)*(1-prev)) = PPV
+        // From NPV: Spec*(1-prev) / (Spec*(1-prev) + (1-Sens)*prev) = NPV
+        // Solve: (1-Spec) = Sens*prev*(1-PPV) / (PPV*(1-prev))
+        // Sub into NPV eq: Spec = 1 - Sens*prev*(1-PPV)/(PPV*(1-prev))
+        // NPV * (Spec*(1-prev) + (1-Sens)*prev) = Spec*(1-prev)
+        // This is solvable but complex. Use iterative approach:
+        let bestSens = null, bestSpec = null, bestErr = Infinity;
+        for (let s = 0.01; s <= 0.999; s += 0.005) {
+          // From PPV equation: (1-Spec)*(1-prev) = s*prev*(1-result.ppv)/result.ppv
+          const oneMinusSpec = s * prev * (1 - result.ppv) / (result.ppv * (1 - prev));
+          const spec = 1 - oneMinusSpec;
+          if (spec < 0 || spec > 1) continue;
+          // Check NPV
+          const calcNPV = spec * (1 - prev) / (spec * (1 - prev) + (1 - s) * prev);
+          const err = Math.abs(calcNPV - result.npv);
+          if (err < bestErr) { bestErr = err; bestSens = s; bestSpec = spec; }
+        }
+        if (bestErr < 0.02 && bestSens != null && bestSpec != null) {
+          result.sensitivity = bestSens;
+          result.specificity = bestSpec;
+          result._derivedFromPPVNPV = true;
+        }
+      }
+    }
+
     // AUC / AUROC — useful for scoring even if not used in back-calc
     const aucM = text.match(/\b(?:auc|auroc|area under the (?:roc |receiver operating characteristic )?curve)\s*(?:was\s*|of\s*|[=:]\s*)?(\d*\.?\d+)/i);
     if (aucM) { result.auc = parseFloat(aucM[1]); if (result.auc > 1 && result.auc <= 100) result.auc /= 100; }
@@ -5355,7 +5469,8 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
             (conf === 'low' && n >= (isPrevEst ? 50 : 30) && minArm >= 10)
           );
           const noConflict = !t._subIndicationConflict;
-          t._selected = (t._indexTestMatch === 'match' && !t._isReview && qualityOk && noConflict);
+          const edgeRelaxed = !!t._edgeRelaxed; // promoted by edge-case gate relaxation
+          t._selected = (t._indexTestMatch === 'match' && !t._isReview && (qualityOk || edgeRelaxed) && noConflict);
         } else {
           t._selected = false;
         }
@@ -5388,24 +5503,29 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     oaDiscoveredStudies = [];
 
     try {
-      setStatus('Searching 3 open sources in parallel...');
+      setStatus('Searching 4 open sources in parallel...');
 
-      // 1. Parallel search
-      const [ctRes, pmRes, oaRes] = await Promise.allSettled([
+      // 1. Parallel search (4 sources)
+      const [ctRes, pmRes, oaRes, pdRes] = await Promise.allSettled([
         searchCTgovDTA(condition, indexTest, setStatus),
         searchEuropePMC_OA(condition, indexTest, setStatus),
-        searchOpenAlex_OA(condition, indexTest, setStatus)
+        searchOpenAlex_OA(condition, indexTest, setStatus),
+        searchPubMedDirect(condition, indexTest, setStatus)
       ]);
 
       const ctTrials = ctRes.status === 'fulfilled' ? ctRes.value : [];
       const pmTrials = pmRes.status === 'fulfilled' ? pmRes.value : [];
       const oaTrials = oaRes.status === 'fulfilled' ? oaRes.value : [];
+      const pdTrials = pdRes.status === 'fulfilled' ? pdRes.value : [];
+      // Merge PubMed direct results into pmTrials (deduplicated later by PMID)
+      pmTrials.push(...pdTrials);
       const apiWarnings = [];
       if (ctRes.status === 'rejected') { console.warn('CT.gov search failed:', ctRes.reason); apiWarnings.push('CT.gov'); }
-      if (pmRes.status === 'rejected') { console.warn('Europe PMC search failed:', pmRes.reason); apiWarnings.push('PubMed'); }
+      if (pmRes.status === 'rejected') { console.warn('Europe PMC search failed:', pmRes.reason); apiWarnings.push('Europe PMC'); }
       if (oaRes.status === 'rejected') { console.warn('OpenAlex search failed:', oaRes.reason); apiWarnings.push('OpenAlex'); }
+      if (pdRes.status === 'rejected') { console.warn('PubMed direct search failed:', pdRes.reason); apiWarnings.push('PubMed Direct'); }
 
-      let statusMsg = 'CT.gov: ' + ctTrials.length + ' | PubMed: ' + pmTrials.length + ' | OpenAlex: ' + oaTrials.length + ' \u2014 deduplicating...';
+      let statusMsg = 'CT.gov: ' + ctTrials.length + ' | PubMed: ' + (pmTrials.length - pdTrials.length) + '+' + pdTrials.length + ' | OpenAlex: ' + oaTrials.length + ' \u2014 deduplicating...';
       if (apiWarnings.length) statusMsg += ' \u26A0 ' + apiWarnings.join(', ') + ' failed';
       setStatus(statusMsg);
 
@@ -5748,6 +5868,26 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
           }
         }
 
+        // Celiac + tTG: IgA-specific tTG has spec ~95-99%, non-IgA-specific (IgG, total) has lower spec
+        if (/transglutaminase|ttg/i.test(testLower) && /celiac|coeliac/i.test(condLower)) {
+          const tagged = [];
+          for (const s of extractable) {
+            const txt = ((s.title || '') + ' ' + (s.abstract || '')).toLowerCase();
+            let tTGType = 'unknown';
+            if (/\biga\b|iga.ttg|ttg.iga|iga.anti|anti.ttg.iga/i.test(txt)) tTGType = 'iga-specific';
+            else if (/\bigg\b|igg.ttg|ttg.igg|total\s+(?:ttg|anti)/i.test(txt)) tTGType = 'non-iga';
+            // Point-of-care vs lab
+            if (/point.of.care|rapid\s+test|poc\b|lateral\s+flow/i.test(txt)) tTGType = 'poc';
+            s._thresholdType = tTGType;
+            tagged.push({ study: s, tTGType });
+          }
+          const nonIga = tagged.filter(x => /non-iga|poc/.test(x.tTGType));
+          const remaining = tagged.length - nonIga.length;
+          if (remaining >= 2 && nonIga.length > 0) {
+            for (const { study } of nonIga) study._subIndicationConflict = 'ttg-non-iga';
+          }
+        }
+
         // Urine cytology for bladder cancer: conventional (low sens ~35-50%)
         // vs enhanced (Paris System, liquid-based, FISH -> higher sens ~60-90%)
         if (/cytolog/i.test(testLower) && /bladder/i.test(condLower)) {
@@ -5773,7 +5913,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
           }
           const enhanced = tagged.filter(x => /enhanced|likely-enhanced/.test(x.cytoType));
           const remaining = tagged.length - enhanced.length;
-          if (remaining >= 3 && enhanced.length > 0) {
+          if (remaining >= 2 && enhanced.length > 0) {
             for (const { study } of enhanced) study._subIndicationConflict = 'technique-enhanced';
           }
         }
@@ -5788,13 +5928,58 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         }
       }
 
+      // 6e. Edge-case gate relaxation: if only 1 study passes the strict quality gate
+      // but there's a 2nd extractable matched study with low confidence and N >= 30,
+      // include it so we can reach the k >= 2 minimum for bivariate GLMM
+      {
+        const strictSelected = extractable.filter(s => {
+          const data = s.backCalc || s.direct2x2;
+          if (!data || s._subIndicationConflict) return false;
+          const conf = data.confidence || 'low';
+          return conf === 'high' || conf === 'medium';
+        });
+        if (strictSelected.length === 1) {
+          // Find additional candidates: matched, non-review, non-conflict, low confidence but decent N
+          const candidates = extractable.filter(s => {
+            if (strictSelected.includes(s) || s._subIndicationConflict) return false;
+            const data = s.backCalc || s.direct2x2;
+            if (!data) return false;
+            const totalCells = (data.tp || 0) + (data.fp || 0) + (data.fn || 0) + (data.tn || 0);
+            const n = Math.max(s.enrollment || 0, totalCells);
+            const nDis = (data.tp || 0) + (data.fn || 0);
+            const nNonDis = (data.fp || 0) + (data.tn || 0);
+            const hasMultiTestWarn = s.abstractMetrics && s.abstractMetrics._multiTestWarning;
+            return !hasMultiTestWarn && n >= 30 && Math.min(nDis, nNonDis) >= 5;
+          });
+          // Promote best candidate (highest DTA score) to allow k >= 2
+          if (candidates.length > 0) {
+            candidates.sort((a, b) => (b.dtaScore || 0) - (a.dtaScore || 0));
+            candidates[0]._edgeRelaxed = true;
+          }
+        }
+      }
+
       oaDiscoveredStudies = merged;
       const matchCount = merged.filter(x => (x.backCalc || x.direct2x2) && x._indexTestMatch === 'match' && !x._isReview).length;
       setStatus('Done: ' + merged.length + ' studies, ' + calcCount + ' with extractable 2x2 data (' + matchCount + ' matching "' + indexTest + '")');
 
       // 7. Show results
       document.getElementById('oaResultsArea').style.display = '';
-      document.getElementById('oaResultCount').textContent = merged.length + ' studies found, ' + matchCount + ' matching extractable (of ' + calcCount + ' total)';
+      // Confidence distribution
+      const confDist = { high: 0, medium: 0, low: 0 };
+      for (const t of merged) {
+        const data = t.backCalc || t.direct2x2;
+        if (data && t._indexTestMatch === 'match' && !t._isReview) {
+          const c = data.confidence || 'low';
+          if (c === 'high') confDist.high++;
+          else if (c === 'medium') confDist.medium++;
+          else confDist.low++;
+        }
+      }
+      const confStr = (confDist.high ? confDist.high + ' high' : '') +
+        (confDist.medium ? (confDist.high ? ', ' : '') + confDist.medium + ' med' : '') +
+        (confDist.low ? ((confDist.high || confDist.medium) ? ', ' : '') + confDist.low + ' low' : '');
+      document.getElementById('oaResultCount').textContent = merged.length + ' studies found, ' + matchCount + ' matching extractable (' + (confStr || 'none') + ')';
       renderOAResultsTable();
 
     } catch (e) {
