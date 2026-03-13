@@ -257,6 +257,62 @@ check('NCT extraction returns null for no match', nct2 is None)
 
 print('\n--- OA Discovery: Example Topics Dropdown ---')
 
+# --- New Extraction Patterns ---
+print('\n--- OA Discovery: Extended Extraction ---')
+
+# PPA/NPA (FDA-style)
+ppaResult = driver.execute_script("""
+    return extractDTAFromAbstract(
+        'Results: The positive percent agreement (PPA) was 94.3% (95% CI: 88.1-97.4) ' +
+        'and the negative percent agreement (NPA) was 99.1% (95% CI: 97.2-99.8). ' +
+        'Among 500 specimens evaluated...'
+    );
+""")
+check('PPA/NPA: extracts sensitivity from PPA', ppaResult is not None and ppaResult.get('sensitivity') is not None and abs(ppaResult['sensitivity'] - 0.943) < 0.01,
+      f"got {ppaResult.get('sensitivity') if ppaResult else None}")
+if ppaResult:
+    check('PPA/NPA: extracts specificity from NPA', ppaResult.get('specificity') is not None and abs(ppaResult['specificity'] - 0.991) < 0.01,
+          f"got {ppaResult.get('specificity')}")
+    check('PPA/NPA: sensLCI from PPA CI', ppaResult.get('sensLCI') is not None and abs(ppaResult['sensLCI'] - 0.881) < 0.01,
+          f"got {ppaResult.get('sensLCI')}")
+
+# Reversed order: "specificity X% and sensitivity Y%"
+revResult = driver.execute_script("""
+    return extractDTAFromAbstract(
+        'Results: The specificity and sensitivity were 95.2% and 87.3%, respectively. ' +
+        'A total of 300 patients were included.'
+    );
+""")
+check('Reversed: spec/sens order correct', revResult is not None and revResult.get('specificity') is not None and abs(revResult['specificity'] - 0.952) < 0.01,
+      f"spec={revResult.get('specificity') if revResult else None}")
+if revResult:
+    check('Reversed: sensitivity correct', abs(revResult['sensitivity'] - 0.873) < 0.01,
+          f"sens={revResult.get('sensitivity')}")
+
+# Fraction: "sensitivity 89.5% (34/38)"
+fracResult = driver.execute_script("""
+    return extractDTAFromAbstract(
+        'The sensitivity of the test was 89.5% (34/38) and specificity 91.2% (155/170). ' +
+        'We enrolled 208 patients.'
+    );
+""")
+check('Fraction: sensitivity extracted', fracResult is not None and fracResult.get('sensitivity') is not None and abs(fracResult['sensitivity'] - 0.895) < 0.01,
+      f"got {fracResult.get('sensitivity') if fracResult else None}")
+
+# Search expansion test
+expandResult = driver.execute_script("return expandIndexTestForSearch('procalcitonin')")
+check('Expansion: procalcitonin expanded', expandResult is not None and 'PCT' in expandResult or 'procalcitonin' in expandResult,
+      f"got '{expandResult}'")
+expandResult2 = driver.execute_script("return expandIndexTestForSearch('tissue transglutaminase')")
+check('Expansion: tTG expanded', expandResult2 is not None and 'tTG' in expandResult2,
+      f"got '{expandResult2}'")
+expandResult3 = driver.execute_script("return expandIndexTestForSearch('OCT')")
+check('Expansion: OCT expanded', expandResult3 is not None and 'optical coherence' in expandResult3.lower(),
+      f"got '{expandResult3}'")
+expandResult4 = driver.execute_script("return expandIndexTestForSearch('CT-FFR')")
+check('Expansion: CT-FFR expanded', expandResult4 is not None and 'FFRCT' in expandResult4,
+      f"got '{expandResult4}'")
+
 # Test 20: Dropdown exists with optgroups
 dropdown_exists = driver.execute_script("return document.getElementById('oaExampleTopics') !== null")
 check('Example topics dropdown exists', dropdown_exists)

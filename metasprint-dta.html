@@ -4383,20 +4383,46 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
   // --- Search term expansion for underperforming index tests ---
   function expandIndexTestForSearch(indexTest) {
     const t = indexTest.toLowerCase().trim();
-    const expansions = {
-      'stop-bang questionnaire': ['STOP-BANG', '"STOP-Bang questionnaire"', '"STOP-BANG"'],
-      'low-dose ct': ['"low-dose CT"', 'LDCT', '"low-dose computed tomography"'],
-      'urine cytology': ['"urine cytology"', '"urinary cytology"', '"voided cytology"'],
-      'fib-4 score': ['FIB-4', 'FIB4', '"Fibrosis-4 index"', '"FIB-4 score"'],
-      'stop-bang': ['STOP-BANG', '"STOP-Bang questionnaire"', '"STOP-BANG"'],
-      'gdh test': ['GDH', '"glutamate dehydrogenase"', '"GDH test"', '"GDH assay"'],
-      'd-dimer': ['D-dimer', '"D dimer"', '"fibrin degradation"'],
-      'fib-4': ['FIB-4', 'FIB4', '"Fibrosis-4 index"'],
-      'gdh': ['GDH', '"glutamate dehydrogenase"'],
+    // Ordered longest-key-first so specific keys match before generic ones
+    const expansions = [
+      // Multi-word specific keys first
+      ['stop-bang questionnaire', ['STOP-BANG', '"STOP-Bang questionnaire"', '"STOP-BANG"']],
+      ['cell-free dna screening', ['"cell-free DNA"', 'cfDNA', '"non-invasive prenatal testing"', 'NIPT', '"prenatal screening"']],
+      ['ct pulmonary angiography', ['"CT pulmonary angiography"', 'CTPA', '"computed tomography pulmonary angiography"']],
+      ['ai fundus screening', ['"artificial intelligence" fundus', '"deep learning" retina', '"automated" "retinal screening"', '"AI screening" diabetic retinopathy']],
+      ['rapid antigen test', ['"rapid antigen test"', '"rapid antigen"', '"rapid diagnostic test"', '"point-of-care antigen"', '"antigen detection test"', '"immunochromatographic"']],
+      ['rapid diagnostic test', ['"rapid diagnostic test"', 'RDT', '"rapid test"', '"immunochromatographic"', '"antigen detection"']],
+      ['tissue transglutaminase', ['"tissue transglutaminase"', 'tTG', '"anti-tTG"', '"tTG-IgA"', '"anti-tissue transglutaminase"']],
+      ['fecal immunochemical test', ['"fecal immunochemical test"', 'FIT', '"faecal immunochemical"', '"immunochemical fecal occult"', '"iFOBT"']],
+      ['fecal calprotectin', ['"fecal calprotectin"', '"faecal calprotectin"', 'calprotectin', '"fecal biomarker"']],
+      ['point-of-care ultrasound', ['"point-of-care ultrasound"', 'POCUS', '"bedside ultrasound"', '"emergency ultrasound"', '"E-FAST"']],
+      ['lung ultrasound', ['"lung ultrasound"', '"lung US"', 'LUS', '"thoracic ultrasound"', '"chest ultrasound"', '"pulmonary ultrasound"']],
+      ['urine cytology', ['"urine cytology"', '"urinary cytology"', '"voided urine cytology"', '"urine sediment cytology"']],
+      ['low-dose ct', ['"low-dose CT"', 'LDCT', '"low-dose computed tomography"']],
+      ['fib-4 score', ['FIB-4', 'FIB4', '"Fibrosis-4 index"', '"FIB-4 score"']],
+      // Shorter keys
+      ['procalcitonin', ['procalcitonin', '"serum procalcitonin"', '"procalcitonin level"', '"PCT level"']],
+      ['troponin', ['troponin', '"cardiac troponin"', '"high-sensitivity troponin"', '"hs-cTnT"', '"hs-cTnI"', '"hsTnI"', '"hsTnT"']],
+      ['stop-bang', ['STOP-BANG', '"STOP-Bang questionnaire"', '"STOP-BANG"']],
+      ['gdh test', ['GDH', '"glutamate dehydrogenase"', '"GDH test"', '"GDH assay"', '"GDH antigen"']],
+      ['dermoscopy', ['"dermoscopy"', '"dermatoscopy"', '"epiluminescence microscopy"', '"dermoscopic"']],
+      ['galactomannan', ['galactomannan', '"galactomannan antigen"', '"GM assay"', '"Platelia Aspergillus"']],
+      ['elastography', ['elastography', '"transient elastography"', '"FibroScan"', '"shear wave elastography"', '"liver stiffness"']],
+      ['mammography', ['mammography', '"digital mammography"', '"breast tomosynthesis"', 'DBT', '"digital breast"']],
+      ['anti-ccp', ['"anti-CCP"', '"anti-cyclic citrullinated peptide"', 'ACPA', '"CCP antibody"']],
+      ['ct-ffr', ['"CT-FFR"', 'FFRCT', '"HeartFlow"', '"CT fractional flow reserve"', '"computed tomography derived FFR"']],
+      ['d-dimer', ['D-dimer', '"D dimer"', '"fibrin degradation"']],
+      ['dipstick', ['"urine dipstick"', '"urinalysis"', '"urine test strip"', '"dipstick urinalysis"']],
+      ['ferritin', ['ferritin', '"serum ferritin"', '"ferritin level"']],
+      ['fib-4', ['FIB-4', 'FIB4', '"Fibrosis-4 index"']],
+      ['gdh', ['GDH', '"glutamate dehydrogenase"', '"GDH antigen"']],
+      ['oct', ['OCT', '"optical coherence tomography"', '"retinal nerve fiber layer"', 'RNFL', '"ganglion cell complex"']],
+      ['bnp', ['BNP', '"brain natriuretic peptide"', '"NT-proBNP"', '"N-terminal pro-BNP"', '"natriuretic peptide"']],
+      ['pcr', ['PCR', '"polymerase chain reaction"', '"real-time PCR"', '"molecular test"', '"nucleic acid amplification"']],
+      ['hpv test', ['"HPV test"', '"HPV DNA"', '"human papillomavirus"', '"HPV testing"', '"HPV screening"']],
       // AFP excluded — already passing without expansion, adding studies causes regression
-    };
-    // Keys sorted by descending length so longer/more-specific keys match first
-    for (const [key, terms] of Object.entries(expansions)) {
+    ];
+    for (const [key, terms] of expansions) {
       if (t === key || t.includes(key)) {
         return '(' + terms.join(' OR ') + ')';
       }
@@ -4407,8 +4433,13 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
   // --- CT.gov API v2: search for DTA studies ---
   async function searchCTgovDTA(condition, indexTest, statusCb) {
     if (statusCb) statusCb('Searching ClinicalTrials.gov...');
-    const expandedTest = expandIndexTestForSearch(indexTest).replace(/^\(|\)$/g, '').replace(/\s+OR\s+/g, ' ');
-    const terms = encodeURIComponent(condition + ' ' + expandedTest + ' diagnostic accuracy sensitivity specificity');
+    // CT.gov uses AND semantics — don't use expanded terms (too many ANDs = no results)
+    // Only use first synonym if expansion exists, otherwise original test name
+    const expanded = expandIndexTestForSearch(indexTest);
+    const ctTestTerm = expanded !== indexTest
+      ? expanded.replace(/^\(/, '').split(/\s+OR\s+/)[0].replace(/[")]/g, '').trim()
+      : indexTest;
+    const terms = encodeURIComponent(condition + ' ' + ctTestTerm + ' diagnostic accuracy sensitivity specificity');
     const fields = 'NCTId,BriefTitle,Acronym,OverallStatus,Phase,EnrollmentCount,StartDate,CompletionDate,ResultsFirstPostDate,Condition,InterventionName,StudyType,DesignAllocation';
     const baseUrl = 'https://clinicaltrials.gov/api/v2/studies?query.term=' + terms
       + '&filter.overallStatus=COMPLETED,TERMINATED&pageSize=100&fields=' + fields;
@@ -4560,10 +4591,12 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
   // --- OpenAlex search ---
   async function searchOpenAlex_OA(condition, indexTest, statusCb) {
     if (statusCb) statusCb('Searching OpenAlex...');
-    let expandedTest = expandIndexTestForSearch(indexTest);
-    // OpenAlex full-text search doesn't support OR syntax — strip parens and OR keywords
-    expandedTest = expandedTest.replace(/^\(|\)$/g, '').replace(/\s+OR\s+/g, ' ');
-    const searchTerms = encodeURIComponent(condition + ' ' + expandedTest + ' sensitivity specificity diagnostic accuracy');
+    const expanded = expandIndexTestForSearch(indexTest);
+    // OpenAlex doesn't support OR — use first synonym only (same fix as CT.gov)
+    const oaTestTerm = expanded !== indexTest
+      ? expanded.replace(/^\(/, '').split(/\s+OR\s+/)[0].replace(/[")]/g, '').trim()
+      : indexTest;
+    const searchTerms = encodeURIComponent(condition + ' ' + oaTestTerm + ' sensitivity specificity diagnostic accuracy');
     const url = 'https://api.openalex.org/works?search=' + searchTerms + '&filter=type:article&per_page=100&select=id,doi,title,ids,abstract_inverted_index,publication_year,type,authorships';
     const resp = await fetchWithTimeout(url, 12000);
     if (!resp.ok) throw new Error('OpenAlex HTTP ' + resp.status);
@@ -5034,6 +5067,63 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         if (result.specificity == null) { result.specificity = parseFloat(combo[2]); if (result.specificity > 1) result.specificity /= 100; }
       }
     }
+    // Reversed: "specificity of X% and sensitivity of Y%"
+    if (result.sensitivity == null || result.specificity == null) {
+      const revCombo = primaryText.match(/specificit(?:y|ies)\s*(?:and|\/|,)\s*sensitiv\w*\s*(?:were|was|of|[=:])\s*(\d+\.?\d*)\s*%?\s*(?:and|\/|,)\s*(\d+\.?\d*)\s*%?/i);
+      if (revCombo) {
+        if (result.specificity == null) { result.specificity = parseFloat(revCombo[1]); if (result.specificity > 1) result.specificity /= 100; }
+        if (result.sensitivity == null) { result.sensitivity = parseFloat(revCombo[2]); if (result.sensitivity > 1) result.sensitivity /= 100; }
+      }
+    }
+
+    // PPA/NPA: FDA-style "positive percent agreement" = sensitivity, "negative percent agreement" = specificity
+    if (result.sensitivity == null) {
+      const ppaM = primaryText.match(/\b(?:positive\s+percent\s+agreement\s*(?:\(PPA\)\s*)?|PPA)\s*(?:was\s*|of\s*|[=:]\s*)?(\d+\.?\d*)\s*%?\s*(?:[\(\[](?:95\s*%?\s*CI\s*[,:=]?\s*)?(\d+\.?\d*)\s*[-\u2013\u2014,\s]*(?:to\s+)?(\d+\.?\d*)\s*%?[\)\]])?/i);
+      if (ppaM) {
+        result.sensitivity = parseFloat(ppaM[1]); if (result.sensitivity > 1) result.sensitivity /= 100;
+        if (ppaM[2] && ppaM[3]) {
+          result.sensLCI = parseFloat(ppaM[2]); result.sensUCI = parseFloat(ppaM[3]);
+          if (result.sensLCI > 1) result.sensLCI /= 100;
+          if (result.sensUCI > 1) result.sensUCI /= 100;
+        }
+      }
+    }
+    if (result.specificity == null) {
+      const npaM = primaryText.match(/\b(?:negative\s+percent\s+agreement\s*(?:\(NPA\)\s*)?|NPA)\s*(?:was\s*|of\s*|[=:]\s*)?(\d+\.?\d*)\s*%?\s*(?:[\(\[](?:95\s*%?\s*CI\s*[,:=]?\s*)?(\d+\.?\d*)\s*[-\u2013\u2014,\s]*(?:to\s+)?(\d+\.?\d*)\s*%?[\)\]])?/i);
+      if (npaM) {
+        result.specificity = parseFloat(npaM[1]); if (result.specificity > 1) result.specificity /= 100;
+        if (npaM[2] && npaM[3]) {
+          result.specLCI = parseFloat(npaM[2]); result.specUCI = parseFloat(npaM[3]);
+          if (result.specLCI > 1) result.specLCI /= 100;
+          if (result.specUCI > 1) result.specUCI /= 100;
+        }
+      }
+    }
+
+    // "at a cutoff/threshold of X, sensitivity Y% and specificity Z%" — threshold-linked
+    if (result.sensitivity == null || result.specificity == null) {
+      const cutoffCombo = primaryText.match(/(?:at\s+(?:a\s+)?(?:cutoff|cut.off|threshold)\s+(?:of\s+)?[\d.]+[^,]*?,?\s*)?sensitiv\w*\s+(?:was\s+|of\s+)?(\d+\.?\d*)\s*%?[^.]*?specificit(?:y|ies)\s+(?:was\s+|of\s+)?(\d+\.?\d*)\s*%?/i);
+      if (cutoffCombo) {
+        if (result.sensitivity == null) { result.sensitivity = parseFloat(cutoffCombo[1]); if (result.sensitivity > 1) result.sensitivity /= 100; }
+        if (result.specificity == null) { result.specificity = parseFloat(cutoffCombo[2]); if (result.specificity > 1) result.specificity /= 100; }
+      }
+    }
+
+    // "X% (a/b)" — percentage with fraction, e.g., "sensitivity 89.5% (34/38)"
+    if (result.sensitivity == null) {
+      const sensFracM = primaryText.match(/sensitiv\w*\s+(?:(?:of\s+|was\s+)?(?:the\s+)?(?:test\s+)?(?:was\s+)?)?(\d+\.?\d*)\s*%?\s*\((\d+)\s*\/\s*(\d+)\)/i);
+      if (sensFracM && !isDTAFalsePositive(primaryText, sensFracM.index, 'sensitivity')) {
+        result.sensitivity = parseFloat(sensFracM[1]); if (result.sensitivity > 1) result.sensitivity /= 100;
+        if (!result._sensitiveDenom) result._sensitiveDenom = parseInt(sensFracM[3]);
+      }
+    }
+    if (result.specificity == null) {
+      const specFracM = primaryText.match(/specificit(?:y|ies)\s+(?:(?:of\s+|was\s+)?(?:the\s+)?(?:test\s+)?(?:was\s+)?)?(\d+\.?\d*)\s*%?\s*\((\d+)\s*\/\s*(\d+)\)/i);
+      if (specFracM && !isDTAFalsePositive(primaryText, specFracM.index, 'specificity')) {
+        result.specificity = parseFloat(specFracM[1]); if (result.specificity > 1) result.specificity /= 100;
+        if (!result._specificityDenom) result._specificityDenom = parseInt(specFracM[3]);
+      }
+    }
 
     // "Diagnostic accuracy of X%" — if we have no sens/spec, AUC-like proxy
     if (result.sensitivity == null && result.specificity == null) {
@@ -5309,6 +5399,59 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         }
       }
 
+      // 5b. PubMed abstract enrichment — for studies with PMIDs but no/failed extraction,
+      // batch-fetch full abstracts from PubMed E-utilities (may have richer content than Europe PMC)
+      {
+        const needEnrich = merged.filter(t =>
+          t.pmid && t._indexTestMatch === 'match' && !t._isReview &&
+          (!t.abstractMetrics || (t.abstractMetrics.sensitivity == null && t.abstractMetrics.specificity == null))
+        );
+        if (needEnrich.length > 0) {
+          setStatus('Enriching ' + needEnrich.length + ' abstracts from PubMed...');
+          // Batch PMIDs in groups of 100
+          for (let i = 0; i < needEnrich.length; i += 100) {
+            const batch = needEnrich.slice(i, i + 100);
+            const pmids = batch.map(t => t.pmid).join(',');
+            try {
+              const eUrl = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=' + pmids + '&rettype=xml&retmode=xml';
+              const eResp = await fetchWithTimeout(eUrl, 20000);
+              if (eResp.ok) {
+                const xmlText = await eResp.text();
+                // Parse abstracts from XML — extract <AbstractText> elements per PMID
+                const articleBlocks = xmlText.split(/<PubmedArticle\b/i).slice(1);
+                for (const block of articleBlocks) {
+                  const pmidM = block.match(/<PMID[^>]*>(\d+)<\/PMID>/i);
+                  if (!pmidM) continue;
+                  const pmid = pmidM[1];
+                  // Collect all AbstractText segments (structured abstracts have Label attributes)
+                  const absTexts = [];
+                  const absRegex = /<AbstractText(?:\s+Label="([^"]*)")?[^>]*>([\s\S]*?)<\/AbstractText>/gi;
+                  let absM;
+                  while ((absM = absRegex.exec(block)) !== null) {
+                    const label = absM[1] ? absM[1] + ': ' : '';
+                    const content = absM[2].replace(/<[^>]+>/g, '').trim();
+                    if (content) absTexts.push(label + content);
+                  }
+                  if (absTexts.length === 0) continue;
+                  const fullAbs = absTexts.join(' ');
+                  // Find the matching study and re-extract
+                  const study = batch.find(t => String(t.pmid) === pmid);
+                  if (study && fullAbs.length > (study.abstract || '').length) {
+                    study.abstract = fullAbs;
+                    study._pubmedEnriched = true;
+                    const newMetrics = extractDTAFromAbstract(fullAbs);
+                    if (newMetrics && (newMetrics.sensitivity != null || newMetrics.specificity != null)) {
+                      study.abstractMetrics = newMetrics;
+                      if (newMetrics.totalN && !study.enrollment) study.enrollment = newMetrics.totalN;
+                    }
+                  }
+                }
+              }
+            } catch (e) { console.warn('PubMed enrichment batch failed:', e.message); }
+          }
+        }
+      }
+
       // 6. Back-calculate 2×2 where possible
       let calcCount = 0;
       for (const t of merged) {
@@ -5491,8 +5634,53 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
           }
           const highAhi = tagged.filter(x => /ahi-15|ahi-30|likely-ahi-high/.test(x.ahiType));
           const remaining = tagged.length - highAhi.length;
-          if (remaining >= 3 && highAhi.length > 0) {
+          if (remaining >= 2 && highAhi.length > 0) {
             for (const { study } of highAhi) study._subIndicationConflict = 'threshold-ahi-high';
+          }
+        }
+
+        // Procalcitonin for sepsis/bacteremia: 0.5 ng/mL is standard clinical cutoff
+        // Higher cutoffs (2.0+) have lower sensitivity, higher specificity
+        if (/procalcitonin|pct/i.test(testLower) && /sepsis|bacteremia|infection|neonatal/i.test(condLower)) {
+          const tagged = [];
+          for (const s of extractable) {
+            const txt = ((s.title || '') + ' ' + (s.abstract || '')).toLowerCase();
+            const am = s.abstractMetrics || {};
+            const metrics = s.ctgovMetrics || am;
+            let pctCutoff = 'unknown';
+            // Text-based detection
+            if (/(?:0\.5|0\.50)\s*(?:ng\/ml|µg\/l|ug\/l)/i.test(txt) || /cutoff.*?0\.5/i.test(txt)) {
+              pctCutoff = 'standard-0.5';
+            } else if (/(?:2\.0|2\.00?)\s*(?:ng\/ml|µg\/l)/i.test(txt) || /cutoff.*?2\.0/i.test(txt)) {
+              pctCutoff = 'high-2.0';
+            } else if (/(?:0\.25|0\.2[0-4])\s*(?:ng\/ml|µg\/l)/i.test(txt)) {
+              pctCutoff = 'low-0.25';
+            }
+            // Threshold-based detection
+            if (pctCutoff === 'unknown' && am.threshold != null) {
+              const thr = am.threshold;
+              const unit = (am.thresholdUnit || '').toLowerCase();
+              if (unit.includes('ng') || unit.includes('µg') || unit === '') {
+                if (thr >= 0.4 && thr <= 0.6) pctCutoff = 'standard-0.5';
+                else if (thr >= 1.5) pctCutoff = 'high-cutoff';
+                else if (thr < 0.3) pctCutoff = 'low-cutoff';
+              }
+            }
+            // Metric-based inference: standard PCT 0.5 → sens ~77-85%, spec ~73-83%
+            // Higher cutoffs → lower sens (<70%), higher spec (>85%)
+            if (pctCutoff === 'unknown' && metrics.sensitivity != null && metrics.specificity != null) {
+              const sens = metrics.sensitivity > 1 ? metrics.sensitivity / 100 : metrics.sensitivity;
+              const spec = metrics.specificity > 1 ? metrics.specificity / 100 : metrics.specificity;
+              if (sens < 0.65 && spec > 0.85) pctCutoff = 'likely-high-cutoff';
+              else if (sens > 0.70 && spec < 0.85) pctCutoff = 'likely-standard';
+            }
+            s._thresholdType = pctCutoff;
+            tagged.push({ study: s, pctCutoff });
+          }
+          const nonStd = tagged.filter(x => /high|low-cutoff|likely-high/.test(x.pctCutoff));
+          const remaining = tagged.length - nonStd.length;
+          if (remaining >= 2 && nonStd.length > 0) {
+            for (const { study } of nonStd) study._subIndicationConflict = 'threshold-pct';
           }
         }
 
