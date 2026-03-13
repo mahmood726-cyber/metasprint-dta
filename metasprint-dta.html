@@ -5125,6 +5125,70 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       }
     }
 
+    // "Sensitivity, specificity, [PPV, NPV,] [accuracy,] were X%, Y%, [Z%, W%,] respectively"
+    // Common in microbiology/clinical chemistry — lists metrics then values
+    if (result.sensitivity == null || result.specificity == null) {
+      const respM = primaryText.match(/\bsensitiv\w*,?\s*(?:and\s+)?specificit(?:y|ies)(?:[^.]*?)(?:were|was|of)\s+(\d+\.?\d*)\s*%?\s*(?:[\(\[][^)\]]*[\)\]])?\s*[,/]\s*(\d+\.?\d*)\s*%?/i);
+      if (respM) {
+        if (result.sensitivity == null) { result.sensitivity = parseFloat(respM[1]); if (result.sensitivity > 1) result.sensitivity /= 100; }
+        if (result.specificity == null) { result.specificity = parseFloat(respM[2]); if (result.specificity > 1) result.specificity /= 100; }
+      }
+    }
+    // "sensitivity, specificity, and accuracy of X%, Y%, and Z%, respectively"
+    if (result.sensitivity == null || result.specificity == null) {
+      const respM2 = primaryText.match(/\bsensitiv\w*,\s*specificit(?:y|ies),?\s*(?:and\s+)?(?:accuracy|PPV|NPV|positive predictive|negative predictive)[^.]*?(\d+\.?\d*)\s*%?\s*[,/]\s*(\d+\.?\d*)\s*%?\s*[,/]?\s*(?:and\s+)?(\d+\.?\d*)\s*%?\s*[,.]?\s*(?:respectively)?/i);
+      if (respM2) {
+        if (result.sensitivity == null) { result.sensitivity = parseFloat(respM2[1]); if (result.sensitivity > 1) result.sensitivity /= 100; }
+        if (result.specificity == null) { result.specificity = parseFloat(respM2[2]); if (result.specificity > 1) result.specificity /= 100; }
+      }
+    }
+
+    // Parenthetical: "sensitivity (X%)... specificity (Y%)" or "high sensitivity (89.5%)"
+    if (result.sensitivity == null) {
+      const sensParenM = primaryText.match(/\bsensitiv\w*\s*\(?(?:of\s+)?(\d+\.?\d*)\s*%?\s*\)?/i);
+      if (sensParenM && !isDTAFalsePositive(primaryText, sensParenM.index, 'sensitivity')) {
+        const val = parseFloat(sensParenM[1]);
+        // Guard: must look like a percentage, not a year or N
+        if (val > 0 && val <= 100 && !(val > 1900 && val < 2100)) {
+          result.sensitivity = val > 1 ? val / 100 : val;
+        }
+      }
+    }
+    if (result.specificity == null) {
+      const specParenM = primaryText.match(/\bspecificit(?:y|ies)\s*\(?(?:of\s+)?(\d+\.?\d*)\s*%?\s*\)?/i);
+      if (specParenM && !isDTAFalsePositive(primaryText, specParenM.index, 'specificity')) {
+        const val = parseFloat(specParenM[1]);
+        if (val > 0 && val <= 100 && !(val > 1900 && val < 2100)) {
+          result.specificity = val > 1 ? val / 100 : val;
+        }
+      }
+    }
+
+    // "no false positive(s)" or "0 false positives" → specificity ≈ 1.0 (common in cfDNA/NIPT)
+    if (result.specificity == null) {
+      const noFpM = primaryText.match(/\b(?:no|zero|0)\s+false[\s-]positive/i);
+      if (noFpM) result.specificity = 1.0;
+    }
+
+    // "X of Y detected" or "detected X of Y" → detection rate as sensitivity proxy
+    if (result.sensitivity == null) {
+      const detM = primaryText.match(/(\d+)\s+(?:of|out of)\s+(\d+)\s*(?:\([^)]*\))?\s*(?:were\s+)?(?:detected|identified|diagnosed|confirmed)/i)
+        || primaryText.match(/(?:detected|identified|diagnosed|confirmed)\s+(\d+)\s+(?:of|out of)\s+(\d+)/i);
+      if (detM) {
+        const num = parseInt(detM[1]), den = parseInt(detM[2]);
+        if (den >= 5 && num <= den) result.sensitivity = num / den;
+      }
+    }
+
+    // "screen-positive rate X%" → FPR proxy → specificity = 1 - SPR (for screening tests)
+    if (result.specificity == null) {
+      const sprM = primaryText.match(/\bscreen[\s-]positive\s+rate\s*(?:was\s*|of\s*|[=:]\s*)?(\d+\.?\d*)\s*%/i);
+      if (sprM) {
+        const spr = parseFloat(sprM[1]);
+        result.specificity = 1 - (spr > 1 ? spr / 100 : spr);
+      }
+    }
+
     // "Diagnostic accuracy of X%" — if we have no sens/spec, AUC-like proxy
     if (result.sensitivity == null && result.specificity == null) {
       const accM = primaryText.match(/(?:diagnostic|overall)\s+accuracy\s*(?:was\s*|of\s*|[=:]\s*)?(\d+\.?\d*)\s*%/i);

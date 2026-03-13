@@ -313,6 +313,67 @@ expandResult4 = driver.execute_script("return expandIndexTestForSearch('CT-FFR')
 check('Expansion: CT-FFR expanded', expandResult4 is not None and 'FFRCT' in expandResult4,
       f"got '{expandResult4}'")
 
+# "Respectively" format
+respResult = driver.execute_script("""
+    return extractDTAFromAbstract(
+        'Results: Sensitivity, specificity, positive predictive value, and negative predictive value ' +
+        'were 89.1%, 92.6%, 94.6%, and 85.2%, respectively.'
+    );
+""")
+check('Respectively: sens extracted', respResult is not None and respResult.get('sensitivity') is not None and abs(respResult['sensitivity'] - 0.891) < 0.01,
+      f"got {respResult.get('sensitivity') if respResult else None}")
+if respResult:
+    check('Respectively: spec extracted', respResult.get('specificity') is not None and abs(respResult['specificity'] - 0.926) < 0.01,
+          f"got {respResult.get('specificity')}")
+
+# "sensitivity, specificity, and accuracy of X%, Y%, Z%"
+triResult = driver.execute_script("""
+    return extractDTAFromAbstract(
+        'Results: CT-FFR showed sensitivity, specificity, and accuracy of 95%, 81%, and 88%, respectively. ' +
+        'Among 252 patients with suspected CAD.'
+    );
+""")
+check('Trio format: sens extracted', triResult is not None and triResult.get('sensitivity') is not None and abs(triResult['sensitivity'] - 0.95) < 0.01,
+      f"got {triResult.get('sensitivity') if triResult else None}")
+if triResult:
+    check('Trio format: spec extracted', triResult.get('specificity') is not None and abs(triResult['specificity'] - 0.81) < 0.01,
+          f"got {triResult.get('specificity')}")
+
+# Parenthetical: "high sensitivity (96.7%) and specificity (96.7%)"
+parenResult = driver.execute_script("""
+    return extractDTAFromAbstract(
+        'The assay showed high sensitivity (96.7%) and specificity (96.7%) for detecting C. difficile. ' +
+        'A total of 200 specimens were tested.'
+    );
+""")
+check('Parenthetical: sens extracted', parenResult is not None and parenResult.get('sensitivity') is not None and abs(parenResult['sensitivity'] - 0.967) < 0.01,
+      f"got {parenResult.get('sensitivity') if parenResult else None}")
+if parenResult:
+    check('Parenthetical: spec extracted', parenResult.get('specificity') is not None and abs(parenResult['specificity'] - 0.967) < 0.01,
+          f"got {parenResult.get('specificity')}")
+
+# "no false positives" → specificity 1.0
+noFpResult = driver.execute_script("""
+    return extractDTAFromAbstract(
+        'Results: Detection rate was 97.6% (41/42 cases). There were no false positive results. ' +
+        'Among 500 pregnancies screened.'
+    );
+""")
+check('No FP: spec = 1.0', noFpResult is not None and noFpResult.get('specificity') == 1.0,
+      f"got {noFpResult.get('specificity') if noFpResult else None}")
+if noFpResult:
+    check('No FP: sens from detection rate', noFpResult.get('sensitivity') is not None and abs(noFpResult['sensitivity'] - 0.976) < 0.02,
+          f"got {noFpResult.get('sensitivity')}")
+
+# "X of Y detected" → sensitivity proxy
+detResult = driver.execute_script("""
+    return extractDTAFromAbstract(
+        'NIPT detected 41 of 42 affected pregnancies. The false positive rate was 0.1%.'
+    );
+""")
+check('Detection: 41/42 sens', detResult is not None and detResult.get('sensitivity') is not None and abs(detResult['sensitivity'] - 41/42) < 0.02,
+      f"got {detResult.get('sensitivity') if detResult else None}")
+
 # Test 20: Dropdown exists with optgroups
 dropdown_exists = driver.execute_script("return document.getElementById('oaExampleTopics') !== null")
 check('Example topics dropdown exists', dropdown_exists)
