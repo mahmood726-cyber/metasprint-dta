@@ -10896,9 +10896,9 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       }
       const dfbetaSens = seSensFull > 0 ? (fullModel.pooledSens - looModel.pooledSens) / seSensFull : 0;
       const dfbetaSpec = seSpecFull > 0 ? (fullModel.pooledSpec - looModel.pooledSpec) / seSpecFull : 0;
-      // Cook's D approximation: DFBETA^2 / k
-      const cooksDSens = (dfbetaSens * dfbetaSens) / n;
-      const cooksDSpec = (dfbetaSpec * dfbetaSpec) / n;
+      // Cook's D: DFBETA^2 / p where p=2 (sens, spec parameters)
+      const cooksDSens = (dfbetaSens * dfbetaSens) / 2;
+      const cooksDSpec = (dfbetaSpec * dfbetaSpec) / 2;
       const cooksD = cooksDSens + cooksDSpec;
       const influential = Math.abs(dfbetaSens) > threshold || Math.abs(dfbetaSpec) > threshold;
       diagnostics.push({
@@ -10916,8 +10916,8 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       k: n, threshold,
       fullModel: { sens: fullModel.pooledSens, spec: fullModel.pooledSpec },
       diagnostics,
-      nInfluential: diagnostics.filter(d => d.influential).length,
-      maxCooksD: Math.max(...diagnostics.filter(d => !d.error).map(d => d.cooksD))
+      nInfluential: diagnostics.filter(d => d.influential === true).length,
+      maxCooksD: (() => { const v = diagnostics.filter(d => !d.error).map(d => d.cooksD); return v.length > 0 ? Math.max(...v) : null; })()
     };
   }
 
@@ -10995,6 +10995,10 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     let bestAlpha = NaN, bestBeta = NaN, bestLL = -Infinity, bestAVals = rows.map(() => 1);
     let converged = false, iter = 0, lastDelta = Infinity;
 
+    // Pre-compute arrays outside EM loop to avoid per-iteration allocation
+    const rowsY1 = rows.map(r => r.y1), rowsY2 = rows.map(r => r.y2);
+    const rowsV1 = rows.map(r => r.v1), rowsV2 = rows.map(r => r.v2);
+
     for (iter = 1; iter <= maxIter; iter++) {
       const muC = c1 * mu1 + c2 * mu2;
       const covBtw = rho * Math.sqrt(Math.max(0, tau2Sens * tau2Spec));
@@ -11026,8 +11030,8 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         sw1 += w1; sw2 += w2; swy1 += w1 * rows[i].y1; swy2 += w2 * rows[i].y2;
       }
       const mu1New = swy1 / clampPos(sw1), mu2New = swy2 / clampPos(sw2);
-      const tau2SNew = updateTau2(rows.map(r => r.y1), rows.map(r => r.v1), mu1New, ipw);
-      const tau2PNew = updateTau2(rows.map(r => r.y2), rows.map(r => r.v2), mu2New, ipw);
+      const tau2SNew = updateTau2(rowsY1, rowsV1, mu1New, ipw);
+      const tau2PNew = updateTau2(rowsY2, rowsV2, mu2New, ipw);
       if (!isFinite(mu1New) || !isFinite(mu2New)) return { error: 'Non-finite pooled estimates' };
 
       lastDelta = Math.max(Math.abs(mu1New - mu1), Math.abs(mu2New - mu2),
@@ -11070,11 +11074,12 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     code += 'library(mada)\nlibrary(metafor)\n\n';
     code += '# Study data\n';
     code += 'dta_data <- data.frame(\n';
-    code += '  study = c(' + studies.map(s => '"' + (s.authorYear || s.study || 'Study').replace(/"/g, "'") + '"').join(', ') + '),\n';
-    code += '  TP = c(' + studies.map(s => parseInt(s.tp)).join(', ') + '),\n';
-    code += '  FP = c(' + studies.map(s => parseInt(s.fp)).join(', ') + '),\n';
-    code += '  FN = c(' + studies.map(s => parseInt(s.fn)).join(', ') + '),\n';
-    code += '  TN = c(' + studies.map(s => parseInt(s.tn)).join(', ') + ')\n)\n\n';
+    const escR = str => str.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    code += '  study = c(' + studies.map(s => '"' + escR(s.authorYear || s.study || 'Study') + '"').join(', ') + '),\n';
+    code += '  TP = c(' + studies.map(s => parseInt(s.tp, 10)).join(', ') + '),\n';
+    code += '  FP = c(' + studies.map(s => parseInt(s.fp, 10)).join(', ') + '),\n';
+    code += '  FN = c(' + studies.map(s => parseInt(s.fn, 10)).join(', ') + '),\n';
+    code += '  TN = c(' + studies.map(s => parseInt(s.tn, 10)).join(', ') + ')\n)\n\n';
     // Bivariate GLMM
     code += '# ============================================\n';
     code += '# Bivariate GLMM (Reitsma et al. 2005)\n';
@@ -11094,10 +11099,12 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     code += '# ============================================\n';
     code += '# Univariate analysis (metafor)\n';
     code += '# ============================================\n\n';
-    code += 'dta_data$logit_sens <- qlogis(dta_data$TP / (dta_data$TP + dta_data$FN))\n';
-    code += 'dta_data$logit_spec <- qlogis(dta_data$TN / (dta_data$TN + dta_data$FP))\n';
-    code += 'dta_data$var_logit_sens <- 1/dta_data$TP + 1/dta_data$FN\n';
-    code += 'dta_data$var_logit_spec <- 1/dta_data$FP + 1/dta_data$TN\n\n';
+    code += '# Continuity correction for zero cells\n';
+    code += 'cc <- ifelse(dta_data$TP==0 | dta_data$FP==0 | dta_data$FN==0 | dta_data$TN==0, 0.5, 0)\n';
+    code += 'dta_data$logit_sens <- qlogis((dta_data$TP+cc) / (dta_data$TP+dta_data$FN+2*cc))\n';
+    code += 'dta_data$logit_spec <- qlogis((dta_data$TN+cc) / (dta_data$TN+dta_data$FP+2*cc))\n';
+    code += 'dta_data$var_logit_sens <- 1/(dta_data$TP+cc) + 1/(dta_data$FN+cc)\n';
+    code += 'dta_data$var_logit_spec <- 1/(dta_data$FP+cc) + 1/(dta_data$TN+cc)\n\n';
     code += 'ma_sens <- rma(yi = logit_sens, vi = var_logit_sens, data = dta_data, method = "REML")\n';
     code += 'ma_spec <- rma(yi = logit_spec, vi = var_logit_spec, data = dta_data, method = "REML")\n\n';
     code += 'cat("metafor Sensitivity:", plogis(ma_sens$beta), "\\n")\n';
@@ -11155,22 +11162,25 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
   }
 
   // --- 5. Results & Methods Text Generator ---
-  function generateResultsText(result, k, totalN) {
+  function generateResultsText(result, k, totalN, confLevel) {
     if (!result) return '';
+    confLevel = confLevel ?? 0.95;
+    const ciLabel = Math.round(confLevel * 100) + '% CI';
     const pct = (v, d) => (v * 100).toFixed(d ?? 1);
-    const ci = (lo, hi) => pct(lo) + '\u2013' + pct(hi);
-    const plr = result.plr ?? (result.pooledSens / (1 - result.pooledSpec));
-    const nlr = result.nlr ?? ((1 - result.pooledSens) / result.pooledSpec);
-    const dor = result.dor ?? ((result.pooledSens * result.pooledSpec) / ((1 - result.pooledSens) * (1 - result.pooledSpec)));
-    const j = youdenIndex(result.pooledSens, result.pooledSpec);
+    const ci = (lo, hi) => lo != null && hi != null ? pct(lo) + '\u2013' + pct(hi) : 'N/A';
+    const sensC = Math.max(0.001, Math.min(0.999, result.pooledSens ?? 0.5));
+    const specC = Math.max(0.001, Math.min(0.999, result.pooledSpec ?? 0.5));
+    const plr = result.plr ?? (sensC / (1 - specC));
+    const nlr = result.nlr ?? ((1 - sensC) / specC);
+    const dor = result.dor ?? ((sensC * specC) / ((1 - sensC) * (1 - specC)));
 
     let text = `A total of ${k} studies`;
     if (totalN) text += ` comprising ${totalN.toLocaleString()} patients`;
     text += ` were included in the diagnostic test accuracy meta-analysis. `;
     text += `The pooled sensitivity was ${pct(result.pooledSens)}% `;
-    text += `(95% CI: ${ci(result.sensCI[0], result.sensCI[1])}%) `;
+    text += result.sensCI ? `(${ciLabel}: ${ci(result.sensCI[0], result.sensCI[1])}%) ` : '';
     text += `and pooled specificity was ${pct(result.pooledSpec)}% `;
-    text += `(95% CI: ${ci(result.specCI[0], result.specCI[1])}%). `;
+    text += result.specCI ? `(${ciLabel}: ${ci(result.specCI[0], result.specCI[1])}%). ` : '. ';
     text += `The positive likelihood ratio was ${plr.toFixed(2)} `;
     text += `and the negative likelihood ratio was ${nlr.toFixed(3)}. `;
     text += `The diagnostic odds ratio was ${dor.toFixed(1)}`;
@@ -11193,7 +11203,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     let text = 'Diagnostic accuracy data were extracted as 2\u00D72 tables (TP, FP, FN, TN) from each study. ';
     if (method === 'bivariate') {
       text += 'Pooled sensitivity and specificity were estimated using the bivariate random-effects model ';
-      text += '(Reitsma et al., 2005) with DerSimonian-Laird estimation of between-study variance. ';
+      text += '(Reitsma et al., 2005) with moment-based estimation of between-study variance. ';
     } else {
       text += 'The hierarchical summary ROC (HSROC) model (Rutter & Gatsonis, 2001) was used to estimate ';
       text += 'the summary ROC curve and derive pooled accuracy parameters. ';
@@ -11222,8 +11232,11 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
 
     const pValues = [];
     for (const s of studies) {
-      const logDOR = (s.logitSens ?? 0) + (s.logitSpec ?? 0);
-      const varLogDOR = (s.varLogitSens ?? 0.25) + (s.varLogitSpec ?? 0.25);
+      // Skip studies with missing logit values (don't impute as 0)
+      if (s.logitSens == null || s.logitSpec == null) continue;
+      if (s.varLogitSens == null || s.varLogitSpec == null) continue;
+      const logDOR = s.logitSens + s.logitSpec;
+      const varLogDOR = s.varLogitSens + s.varLogitSpec; // within-study: cov=0 (independent binomials)
       if (varLogDOR <= 0) continue;
       const z = logDOR / Math.sqrt(varLogDOR);
       const p = 2 * (1 - normalCDF(Math.abs(z)));
@@ -11268,13 +11281,15 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       interpretation: rightSkewed ? 'Evidential value present (right-skewed p-curve)'
         : flat ? 'P-curve is flat: may indicate selective reporting or no true effect'
         : 'Inconclusive p-curve shape',
+      caveat: 'P-curve was developed for treatment effects (Simonsohn et al., 2014). Application to DTA using logDOR z-tests is exploratory and not yet validated in the DTA literature.',
       pValues
     };
   }
 
-  // --- 7. Profile Likelihood CIs ---
+  // --- 7. Bivariate Profile Likelihood CIs (from study objects) ---
   // Bisection on -2*logLR = chi2(1, alpha) for logit(sens)/logit(spec)
-  function profileLikelihoodCI(studies, confLevel) {
+  // Note: tau2 is held fixed at DL estimate (conditional profile); see P1-4 limitation.
+  function bivariateProfileLikelihoodCI(studies, confLevel) {
     confLevel = confLevel ?? 0.95;
     const n = studies.length;
     if (n < 3) return null;
@@ -11324,19 +11339,24 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         return (lo + hi) / 2;
       };
 
+      const loBound = findBound(-1), hiBound = findBound(1);
       return {
         muHat, tau2,
-        ci: [findBound(-1), findBound(1)],
+        ci: [loBound, hiBound],
         prob: invLogit(muHat),
-        probCI: [invLogit(findBound(-1)), invLogit(findBound(1))]
+        probCI: [invLogit(loBound), invLogit(hiBound)]
       };
     };
 
-    const y1 = studies.map(s => s.logitSens), v1 = studies.map(s => s.varLogitSens);
-    const y2 = studies.map(s => s.logitSpec), v2 = studies.map(s => s.varLogitSpec);
+    // Filter studies with valid finite logit values and positive variances
+    const valid = studies.filter(s => isFinite(s.logitSens) && isFinite(s.logitSpec) &&
+                                      s.varLogitSens > 0 && s.varLogitSpec > 0);
+    if (valid.length < 3) return null;
+    const y1 = valid.map(s => s.logitSens), v1 = valid.map(s => s.varLogitSens);
+    const y2 = valid.map(s => s.logitSpec), v2 = valid.map(s => s.varLogitSpec);
 
     return {
-      method: 'profile_likelihood',
+      method: 'profile_likelihood_conditional',
       sensitivity: profileOneDim(y1, v1),
       specificity: profileOneDim(y2, v2)
     };
@@ -11345,10 +11365,12 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
   // --- 8. What-If Scenario Simulator ---
   // Computes clinical outcomes for any sens/spec/prev/pop combination
   function whatIfSimulator(params) {
-    const sens = Math.max(0, Math.min(1, params.sensitivity ?? 0.90));
-    const spec = Math.max(0, Math.min(1, params.specificity ?? 0.90));
+    const sens = Math.max(1e-6, Math.min(1 - 1e-6, params.sensitivity ?? 0.90));
+    const spec = Math.max(1e-6, Math.min(1 - 1e-6, params.specificity ?? 0.90));
     const prev = Math.max(0.001, Math.min(0.999, params.prevalence ?? 0.10));
     const pop = Math.max(1, params.population ?? 10000);
+    // Threshold probability for net benefit (default = prevalence if not provided)
+    const pt = Math.max(0.001, Math.min(0.999, params.threshold ?? prev));
 
     const diseased = pop * prev, healthy = pop - diseased;
     const tp = diseased * sens, fn = diseased * (1 - sens);
@@ -11362,9 +11384,9 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     const postPosProb = postPosOdds / (1 + postPosOdds);
     const postNegProb = postNegOdds / (1 + postNegOdds);
 
-    // Clinical impact
+    // Clinical impact — net benefit uses threshold probability (Vickers DCA formula)
     const nnd = 1 / Math.max(0.001, sens + spec - 1);
-    const netBenefit = tp / pop - fp / pop * (prev / (1 - prev));
+    const netBenefit = (tp / pop) - (fp / pop) * (pt / (1 - pt));
 
     return {
       inputs: { sensitivity: sens, specificity: spec, prevalence: prev, population: pop },
@@ -11416,9 +11438,10 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     bootSpec.sort((a, b) => a - b);
 
     const alpha = 1 - confLevel;
-    // BCa: bias correction
-    const z0Sens = normalQuantile(bootSens.filter(v => v < fullModel.pooledSens).length / bootSens.length);
-    const z0Spec = normalQuantile(bootSpec.filter(v => v < fullModel.pooledSpec).length / bootSpec.length);
+    // BCa: bias correction — clamp proportion to avoid normalQuantile(0)=-Inf or normalQuantile(1)=Inf
+    const clampProp = (count, total) => Math.max(0.001, Math.min(0.999, count / total));
+    const z0Sens = normalQuantile(clampProp(bootSens.filter(v => v < fullModel.pooledSens).length, bootSens.length));
+    const z0Spec = normalQuantile(clampProp(bootSpec.filter(v => v < fullModel.pooledSpec).length, bootSpec.length));
 
     // BCa: acceleration (jackknife)
     const jackSens = [], jackSpec = [];
