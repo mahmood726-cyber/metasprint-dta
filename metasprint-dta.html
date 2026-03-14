@@ -5001,7 +5001,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     // Musculoskeletal
     if (/acl/i.test(c)) return 0.35;
     if (/rotator cuff/i.test(c)) return 0.40;
-    if (/hip fracture/i.test(c)) return 0.50;
+    if (/hip fracture/i.test(c)) return 0.30; // occult fracture studies: 10-30% have fractures on MRI after negative X-ray
     if (/carpal tunnel/i.test(c)) return 0.45;
     // GI / hepatology
     if (/celiac|coeliac/i.test(c)) return 0.15;
@@ -5027,7 +5027,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
   // --- Abstract DTA extraction (regex) ---
   // Helper: check if a match position is in a false-positive context
   function isDTAFalsePositive(text, matchIndex, metricType) {
-    const before = text.substring(Math.max(0, matchIndex - 50), matchIndex).toLowerCase();
+    const before = text.substring(Math.max(0, matchIndex - 80), matchIndex).toLowerCase();
     if (metricType === 'sensitivity') {
       // "sensitivity analysis", "antibiotic sensitivity", "drug sensitivity", "insulin sensitivity"
       if (/\b(?:antibiotic|drug|insulin|antimicrobial|analys)\w*\s*$/i.test(before)) return true;
@@ -5036,6 +5036,10 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       // "age-specific", "disease-specific", "cause-specific", "site-specific"
       if (/\b(?:age|disease|cause|site|sex|gender|race|country|region|organ|cell|stage|grade|time|year)[\s-]*$/i.test(before)) return true;
     }
+    // Negative context from V2 extractor: design/planning phase mentions (not actual results)
+    if (/\b(?:assuming|hypothetical|expected|required|target|minimum|threshold|desired|predetermined|preset)\s+$/i.test(before)) return true;
+    if (/\b(?:power|sample\s+size)\s+(?:calculation|analysis|estimation)\s+(?:assuming|with|based)\b/i.test(before)) return true;
+    if (/\b(?:sensitivity|specificity|auc)\s+(?:of\s+at\s+least|required|needed|threshold)\b/i.test(text.substring(matchIndex, matchIndex + 60).toLowerCase())) return true;
     return false;
   }
 
@@ -5349,11 +5353,68 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     const aucM = text.match(/\b(?:auc|auroc|area under the (?:roc |receiver operating characteristic )?curve)\s*(?:was\s*|of\s*|[=:]\s*)?(\d*\.?\d+)/i);
     if (aucM) { result.auc = parseFloat(aucM[1]); if (result.auc > 1 && result.auc <= 100) result.auc /= 100; }
 
-    // Likelihood ratios — LR+, LR-, positive/negative likelihood ratio
-    const lrPlusM = text.match(/(?:\blr\s*\+|positive\s+likelihood\s+ratio)\s*(?:was\s*|of\s*|[=:]\s*)?(\d+\.?\d*)\s*(?:\((?:95\s*%?\s*CI\s*[,:]?\s*)?(\d+\.?\d*)\s*[-\u2013\u2014to]+\s*(\d+\.?\d*)\s*\))?/i);
-    if (lrPlusM) { result.lrPlus = parseFloat(lrPlusM[1]); if (lrPlusM[2] && lrPlusM[3]) { result.lrPlusLCI = parseFloat(lrPlusM[2]); result.lrPlusUCI = parseFloat(lrPlusM[3]); } }
-    const lrMinusM = text.match(/(?:\blr\s*[-\u2013]|negative\s+likelihood\s+ratio)\s*(?:was\s*|of\s*|[=:]\s*)?(\d*\.?\d+)\s*(?:\((?:95\s*%?\s*CI\s*[,:]?\s*)?(\d*\.?\d+)\s*[-\u2013\u2014to]+\s*(\d*\.?\d+)\s*\))?/i);
-    if (lrMinusM) { result.lrMinus = parseFloat(lrMinusM[1]); if (lrMinusM[2] && lrMinusM[3]) { result.lrMinusLCI = parseFloat(lrMinusM[2]); result.lrMinusUCI = parseFloat(lrMinusM[3]); } }
+    // Likelihood ratios — LR+, LR-, positive/negative likelihood ratio, PLR, NLR (V2 patterns)
+    const lrPlusPatterns = [
+      /(?:\blr\s*\+|positive\s+likelihood\s+ratio)\s*(?:was\s*|of\s*|[=:]\s*)?(\d+\.?\d*)\s*(?:\((?:95\s*%?\s*CI\s*[,:]?\s*)?(\d+\.?\d*)\s*[-\u2013\u2014to]+\s*(\d+\.?\d*)\s*\))?/i,
+      /\bPLR\b\s*(?:[=:]\s*|was\s*|of\s*)?(\d+\.?\d*)\s*(?:\((?:95\s*%?\s*CI\s*[,:]?\s*)?(\d+\.?\d*)\s*[-\u2013\u2014to]+\s*(\d+\.?\d*)\s*\))?/i,
+      /\bLR\s*\(\s*\+\s*\)\s*(?:[=:]\s*|was\s*)?(\d+\.?\d*)\s*(?:\((?:95\s*%?\s*CI\s*[,:]?\s*)?(\d+\.?\d*)\s*[-\u2013\u2014to]+\s*(\d+\.?\d*)\s*\))?/i
+    ];
+    for (const pat of lrPlusPatterns) {
+      if (result.lrPlus != null) break;
+      const m = text.match(pat);
+      if (m) { result.lrPlus = parseFloat(m[1]); if (m[2] && m[3]) { result.lrPlusLCI = parseFloat(m[2]); result.lrPlusUCI = parseFloat(m[3]); } }
+    }
+    const lrMinusPatterns = [
+      /(?:\blr\s*[-\u2013]|negative\s+likelihood\s+ratio)\s*(?:was\s*|of\s*|[=:]\s*)?(\d*\.?\d+)\s*(?:\((?:95\s*%?\s*CI\s*[,:]?\s*)?(\d*\.?\d+)\s*[-\u2013\u2014to]+\s*(\d*\.?\d+)\s*\))?/i,
+      /\bNLR\b\s*(?:[=:]\s*|was\s*|of\s*)?(\d*\.?\d+)\s*(?:\((?:95\s*%?\s*CI\s*[,:]?\s*)?(\d*\.?\d+)\s*[-\u2013\u2014to]+\s*(\d*\.?\d+)\s*\))?/i,
+      /\bLR\s*\(\s*-\s*\)\s*(?:[=:]\s*|was\s*)?(\d*\.?\d+)\s*(?:\((?:95\s*%?\s*CI\s*[,:]?\s*)?(\d*\.?\d+)\s*[-\u2013\u2014to]+\s*(\d*\.?\d+)\s*\))?/i
+    ];
+    for (const pat of lrMinusPatterns) {
+      if (result.lrMinus != null) break;
+      const m = text.match(pat);
+      if (m) { result.lrMinus = parseFloat(m[1]); if (m[2] && m[3]) { result.lrMinusLCI = parseFloat(m[2]); result.lrMinusUCI = parseFloat(m[3]); } }
+    }
+
+    // DOR (Diagnostic Odds Ratio) — from V2 extractor patterns
+    const dorPatterns = [
+      /\bdiagnostic\s+odds\s+ratio\s*(?:was\s*|of\s*|[=:]\s*)?(\d+\.?\d*)\s*(?:\((?:95\s*%?\s*CI\s*[,:]?\s*)?(\d+\.?\d*)\s*[-\u2013\u2014to]+\s*(\d+\.?\d*)\s*\))?/i,
+      /\bDOR\b\s*(?:[=:]\s*|was\s*|of\s*)?(\d+\.?\d*)\s*(?:\((?:95\s*%?\s*CI\s*[,:]?\s*)?(\d+\.?\d*)\s*[-\u2013\u2014to]+\s*(\d+\.?\d*)\s*\))?/,
+      /\bDOR\b\s+(\d+\.?\d*)\s*\(\s*(\d+\.?\d*)\s*[-\u2013\u2014]\s*(\d+\.?\d*)\s*\)/
+    ];
+    for (const pat of dorPatterns) {
+      if (result.dor != null) break;
+      const m = text.match(pat);
+      if (m) { result.dor = parseFloat(m[1]); if (m[2] && m[3]) { result.dorLCI = parseFloat(m[2]); result.dorUCI = parseFloat(m[3]); } }
+    }
+
+    // DOR-based derivation: if DOR + one metric → derive the other
+    // DOR = Sens*Spec / ((1-Sens)*(1-Spec))
+    if (result.dor != null && result.dor > 1) {
+      if (result.sensitivity != null && result.specificity == null) {
+        // Spec = DOR*(1-Sens) / (Sens + DOR*(1-Sens))
+        const s = result.sensitivity;
+        const spec = result.dor * (1 - s) / (s + result.dor * (1 - s));
+        if (spec > 0 && spec < 1) { result.specificity = spec; result._derivedFromDOR = true; }
+      } else if (result.specificity != null && result.sensitivity == null) {
+        // Sens = DOR*(1-Spec) / (Spec + DOR*(1-Spec))
+        const sp = result.specificity;
+        const sens = result.dor * (1 - sp) / (sp + result.dor * (1 - sp));
+        if (sens > 0 && sens < 1) { result.sensitivity = sens; result._derivedFromDOR = true; }
+      }
+    }
+
+    // LR+/LR- → Sens/Spec derivation (when no direct sens/spec but LRs available)
+    if (result.sensitivity == null && result.specificity == null &&
+        result.lrPlus != null && result.lrMinus != null &&
+        result.lrPlus > 1 && result.lrMinus > 0 && result.lrMinus < 1) {
+      // Spec = (LR+ - 1) / (LR+ - LR-), Sens = LR+ * (1 - Spec)
+      const spec = (result.lrPlus - 1) / (result.lrPlus - result.lrMinus);
+      const sens = result.lrPlus * (1 - spec);
+      if (sens > 0 && sens < 1 && spec > 0 && spec < 1) {
+        result.sensitivity = sens; result.specificity = spec;
+        result._derivedFromLR = true;
+      }
+    }
 
     // Prevalence extraction — extract from context if mentioned in abstract
     const prevM = text.match(/\bprevalence\s*(?:was\s*|of\s*|[=:]\s*)?(\d+\.?\d*)\s*%/i);
@@ -5885,6 +5946,71 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
           const remaining = tagged.length - nonIga.length;
           if (remaining >= 2 && nonIga.length > 0) {
             for (const { study } of nonIga) study._subIndicationConflict = 'ttg-non-iga';
+          }
+        }
+
+        // Celiac + tTG: additional population-based filtering
+        // Screening/population-based studies have lower specificity due to spectrum bias
+        if (/transglutaminase|ttg/i.test(testLower) && /celiac|coeliac/i.test(condLower)) {
+          for (const s of extractable) {
+            if (s._subIndicationConflict) continue; // already tagged
+            const txt = ((s.title || '') + ' ' + (s.abstract || '')).toLowerCase();
+            const metrics = s.ctgovMetrics || s.abstractMetrics || {};
+            // Detect screening/population-based studies (lower pretest prob → lower spec)
+            const isScreening = /\bscreening\b|population.based|mass screening|community.based|general population|asymptomatic/i.test(txt);
+            // Metric-based: standard IgA-tTG in symptomatic patients has spec ≥90%
+            // Spec <70% likely indicates wrong population, wrong test variant, or POC
+            if (metrics.specificity != null) {
+              const sp = metrics.specificity > 1 ? metrics.specificity / 100 : metrics.specificity;
+              if (sp < 0.70 && isScreening) {
+                s._subIndicationConflict = 'ttg-screening-population';
+              }
+            }
+          }
+        }
+
+        // Hip fracture + MRI: occult fracture detection is the primary indication
+        // MRI sensitivity for occult hip fractures: 93-100%
+        // But studies including stress fractures, non-hip locations, or general fracture
+        // assessment mix different clinical questions → lower pooled sensitivity
+        if (/\bmri\b|magnetic resonance/i.test(testLower) && /hip fracture|femoral neck|proximal femur/i.test(condLower)) {
+          const tagged = [];
+          for (const s of extractable) {
+            const txt = ((s.title || '') + ' ' + (s.abstract || '')).toLowerCase();
+            const am = s.abstractMetrics || {};
+            const metrics = s.ctgovMetrics || am;
+            let fracType = 'unknown';
+            // Target: occult/suspected/radiographically negative hip fractures
+            if (/occult|radiograph\w*\s*(?:negative|normal|inconclusive)|x.ray\s*(?:negative|normal|inconclusive)|suspected\s+(?:hip\s+)?fracture|clinical\s+suspicion|negative\s+(?:plain\s+)?(?:radiograph|x.ray|film)/i.test(txt)) {
+              fracType = 'occult-suspected';
+            }
+            // Non-target: stress/insufficiency fractures (different pathology)
+            else if (/stress\s+fracture|insufficiency\s+fracture|fatigue\s+fracture|march\s+fracture/i.test(txt)) {
+              fracType = 'stress-fracture';
+            }
+            // Non-target: non-hip locations (sacral, pubic, pelvic)
+            else if (/sacr\w+\s+fracture|pubic\s+(?:rami?|fracture)|pelvic\s+fracture|acetabul\w+\s+fracture/i.test(txt) &&
+                     !/hip|femoral\s+neck|proximal\s+femur/i.test(txt)) {
+              fracType = 'non-hip-location';
+            }
+            // Non-target: acute/established fractures (diagnosis already known)
+            else if (/(?:acute|displaced|established|obvious|clinical)\s+fracture/i.test(txt) &&
+                     !/occult|suspected|negative/i.test(txt)) {
+              fracType = 'acute-established';
+            }
+            // Light metric-based filtering: only exclude obviously non-occult studies (sens<50%)
+            // With small k, aggressive filtering destabilizes the bivariate estimate
+            if (fracType === 'unknown' && metrics.sensitivity != null) {
+              const sens = metrics.sensitivity > 1 ? metrics.sensitivity / 100 : metrics.sensitivity;
+              if (sens < 0.50) fracType = 'likely-non-occult';
+            }
+            s._thresholdType = fracType;
+            tagged.push({ study: s, fracType });
+          }
+          const nonOccult = tagged.filter(x => /stress|non-hip|acute|likely-non-occult/.test(x.fracType));
+          const remaining = tagged.length - nonOccult.length;
+          if (remaining >= 2 && nonOccult.length > 0) {
+            for (const { study } of nonOccult) study._subIndicationConflict = 'fracture-non-occult';
           }
         }
 
