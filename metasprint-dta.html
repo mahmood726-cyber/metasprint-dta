@@ -5047,8 +5047,33 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     return false;
   }
 
+  // --- V2 Text Preprocessing (ported from rct-extractor-v2) ---
+  function preprocessDTAText(text) {
+    if (!text) return text;
+    let t = text;
+    // Unicode normalization (from enhanced_extractor_v3.py)
+    t = t.replace(/\u2013/g, '-').replace(/\u2014/g, '-').replace(/\u2212/g, '-'); // dashes
+    t = t.replace(/\u037e/g, ';');   // Greek question mark → semicolon (common PDF artifact)
+    t = t.replace(/\uff1b/g, ';').replace(/\uff1a/g, ':').replace(/\uff0c/g, ','); // fullwidth
+    t = t.replace(/\u2018/g, "'").replace(/\u2019/g, "'"); // curly single quotes
+    t = t.replace(/\u201c/g, '"').replace(/\u201d/g, '"'); // curly double quotes
+    t = t.replace(/\u00b7/g, '.'); // middle dot
+    t = t.replace(/\ufeff/g, '');  // BOM
+    // OCR error correction (from ocr_preprocessor.py) — context-aware
+    t = t.replace(/(\d+%?\s*)Cl(\s*[:\[\(,])/gi, '$1CI$2'); // "95% Cl:" → "95% CI:"
+    t = t.replace(/\(Cl\s/gi, '(CI ');                        // "(Cl " → "(CI "
+    t = t.replace(/\bO\.(\d+)/g, '0.$1');                     // "O.85" → "0.85"
+    t = t.replace(/(\d+\.)O(\d)/g, '$10$2');                  // "0.8O5" → "0.805"
+    // European decimal comma → dot (only in numeric contexts, not CI comma separators)
+    // Pattern: digits,1-2digits followed by % or end-of-number (not "1,234" thousands)
+    t = t.replace(/(\d),(\d{1,2})(?=%|\s|[-–)\]])/g, '$1.$2');
+    return t;
+  }
+
   function extractDTAFromAbstract(text) {
     if (!text) return null;
+    // Apply V2 text preprocessing before extraction
+    text = preprocessDTAText(text);
     const result = {};
     // Try to extract from Results section first (more reliable than full abstract)
     const resultsText = extractResultsSection(text);
@@ -5304,11 +5329,39 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       }
     }
 
-    // PPV / NPV
-    const ppvM = text.match(/(?:positive predictive|ppv)\s*(?:value\s*)?(?:was\s*|of\s*|[=:]\s*)?(\d+\.?\d*)\s*%?/i);
-    if (ppvM) { result.ppv = parseFloat(ppvM[1]); if (result.ppv > 1) result.ppv /= 100; }
-    const npvM = text.match(/(?:negative predictive|npv)\s*(?:value\s*)?(?:was\s*|of\s*|[=:]\s*)?(\d+\.?\d*)\s*%?/i);
-    if (npvM) { result.npv = parseFloat(npvM[1]); if (result.npv > 1) result.npv /= 100; }
+    // PPV / NPV — with CI extraction (V2 patterns)
+    const ppvPatterns = [
+      /(?:positive\s+predictive\s+value|PPV)\s*(?:was\s*|of\s*|[=:]\s*)?(\d+\.?\d*)\s*%?\s*(?:[\(\[](?:95\s*%?\s*CI\s*[,:=]?\s*)?(\d+\.?\d*)\s*[-\u2013\u2014,\s]*(?:to\s+)?(\d+\.?\d*)\s*%?[\)\]])?/i,
+      /\bPPV\b\s+of\s+(\d+\.?\d*)\s*%?\s*(?:[\(\[](?:95\s*%?\s*CI\s*[,:=]?\s*)?(\d+\.?\d*)\s*[-,\s]*(\d+\.?\d*)\s*%?[\)\]])?/i
+    ];
+    for (const pat of ppvPatterns) {
+      if (result.ppv != null) break;
+      const ppvM = text.match(pat);
+      if (ppvM) {
+        result.ppv = parseFloat(ppvM[1]); if (result.ppv > 1) result.ppv /= 100;
+        if (ppvM[2] && ppvM[3]) {
+          result.ppvLCI = parseFloat(ppvM[2]); result.ppvUCI = parseFloat(ppvM[3]);
+          if (result.ppvLCI > 1) result.ppvLCI /= 100;
+          if (result.ppvUCI > 1) result.ppvUCI /= 100;
+        }
+      }
+    }
+    const npvPatterns = [
+      /(?:negative\s+predictive\s+value|NPV)\s*(?:was\s*|of\s*|[=:]\s*)?(\d+\.?\d*)\s*%?\s*(?:[\(\[](?:95\s*%?\s*CI\s*[,:=]?\s*)?(\d+\.?\d*)\s*[-\u2013\u2014,\s]*(?:to\s+)?(\d+\.?\d*)\s*%?[\)\]])?/i,
+      /\bNPV\b\s+of\s+(\d+\.?\d*)\s*%?\s*(?:[\(\[](?:95\s*%?\s*CI\s*[,:=]?\s*)?(\d+\.?\d*)\s*[-,\s]*(\d+\.?\d*)\s*%?[\)\]])?/i
+    ];
+    for (const pat of npvPatterns) {
+      if (result.npv != null) break;
+      const npvM = text.match(pat);
+      if (npvM) {
+        result.npv = parseFloat(npvM[1]); if (result.npv > 1) result.npv /= 100;
+        if (npvM[2] && npvM[3]) {
+          result.npvLCI = parseFloat(npvM[2]); result.npvUCI = parseFloat(npvM[3]);
+          if (result.npvLCI > 1) result.npvLCI /= 100;
+          if (result.npvUCI > 1) result.npvUCI /= 100;
+        }
+      }
+    }
 
     // NPV+prevalence → derive sensitivity (for rule-out tests like troponin)
     // Sens = (NPV * (1-prev)) / (NPV * (1-prev) + (1-NPV) * prev)... simplified:
@@ -5353,9 +5406,24 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       }
     }
 
-    // AUC / AUROC — useful for scoring even if not used in back-calc
-    const aucM = text.match(/\b(?:auc|auroc|area under the (?:roc |receiver operating characteristic )?curve)\s*(?:was\s*|of\s*|[=:]\s*)?(\d*\.?\d+)/i);
-    if (aucM) { result.auc = parseFloat(aucM[1]); if (result.auc > 1 && result.auc <= 100) result.auc /= 100; }
+    // AUC / AUROC / C-statistic — with CI extraction (V2 patterns)
+    const aucPatterns = [
+      /\b(?:AUC|AUROC)\b\s*(?:was\s*|of\s*|[=:]\s*)?(\d*\.?\d+)\s*(?:[\(\[](?:95\s*%?\s*CI\s*[,:=]?\s*)?(\d*\.?\d+)\s*[-\u2013\u2014,\s]*(?:to\s+)?(\d*\.?\d+)\s*[\)\]])?/i,
+      /[Cc]-(?:statistic|index)\s*(?:was\s*|of\s*|[=:]\s*)?(\d*\.?\d+)\s*(?:[\(\[](?:95\s*%?\s*CI\s*[,:=]?\s*)?(\d*\.?\d+)\s*[-\u2013\u2014,\s]*(?:to\s+)?(\d*\.?\d+)\s*[\)\]])?/i,
+      /[Aa]rea\s+under\s+(?:the\s+)?(?:ROC|receiver\s+operating\s+characteristic)\s+curve\s*(?:was\s*|of\s*|[=:]\s*)?(\d*\.?\d+)\s*(?:[\(\[](?:95\s*%?\s*CI\s*[,:=]?\s*)?(\d*\.?\d+)\s*[-\u2013\u2014,\s]*(?:to\s+)?(\d*\.?\d+)\s*[\)\]])?/i
+    ];
+    for (const pat of aucPatterns) {
+      if (result.auc != null) break;
+      const aucM = text.match(pat);
+      if (aucM) {
+        result.auc = parseFloat(aucM[1]); if (result.auc > 1 && result.auc <= 100) result.auc /= 100;
+        if (aucM[2] && aucM[3]) {
+          result.aucLCI = parseFloat(aucM[2]); result.aucUCI = parseFloat(aucM[3]);
+          if (result.aucLCI > 1) result.aucLCI /= 100;
+          if (result.aucUCI > 1) result.aucUCI /= 100;
+        }
+      }
+    }
 
     // Likelihood ratios — LR+, LR-, positive/negative likelihood ratio, PLR, NLR (V2 patterns)
     const lrPlusPatterns = [
@@ -5493,6 +5561,29 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       if (result.sensitivity < 0.05 && result.specificity < 0.05) result._plausibilityWarning = 'both-near-zero';
       if (result.sensitivity > 0.99 && result.specificity < 0.10) result._plausibilityWarning = 'extreme-imbalance';
       if (result.specificity > 0.99 && result.sensitivity < 0.10) result._plausibilityWarning = 'extreme-imbalance';
+    }
+
+    // CI containment validation (from V2 advanced_validator.py)
+    const _ciCheck = (point, lo, hi, label) => {
+      if (point != null && lo != null && hi != null) {
+        if (point < lo - 0.01 || point > hi + 0.01) {
+          result._warnings = result._warnings || [];
+          result._warnings.push(label + ' ' + point.toFixed(3) + ' outside CI [' + lo.toFixed(3) + ', ' + hi.toFixed(3) + ']');
+        }
+      }
+    };
+    _ciCheck(result.sensitivity, result.sensLCI, result.sensUCI, 'Sensitivity');
+    _ciCheck(result.specificity, result.specLCI, result.specUCI, 'Specificity');
+    _ciCheck(result.auc, result.aucLCI, result.aucUCI, 'AUC');
+
+    // LR plausibility (from V2)
+    if (result.lrPlus != null && result.lrPlus < 1) {
+      result._warnings = result._warnings || [];
+      result._warnings.push('LR+ < 1 is unusual (expected > 1 for useful test)');
+    }
+    if (result.lrMinus != null && result.lrMinus > 1) {
+      result._warnings = result._warnings || [];
+      result._warnings.push('LR- > 1 is unusual (expected < 1 for useful test)');
     }
 
     return result;
