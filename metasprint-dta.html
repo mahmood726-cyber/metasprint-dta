@@ -5061,13 +5061,20 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     t = t.replace(/\ufeff/g, '');  // BOM
     // OCR error correction (from ocr_preprocessor.py) — context-aware
     t = t.replace(/(\d+%?\s*)Cl(\s*[:\[\(,])/gi, '$1CI$2'); // "95% Cl:" → "95% CI:"
-    t = t.replace(/\(Cl\s/gi, '(CI ');                        // "(Cl " → "(CI "
+    t = t.replace(/\(Cl\s+(?=\d)/gi, '(CI ');                // "(Cl 80" → "(CI 80" (only when followed by digit)
     t = t.replace(/\bO\.(\d+)/g, '0.$1');                     // "O.85" → "0.85"
     t = t.replace(/(\d+\.)O(\d)/g, '$10$2');                  // "0.8O5" → "0.805"
     // European decimal comma → dot (only in numeric contexts, not CI comma separators)
-    // Pattern: digits,1-2digits followed by % or end-of-number (not "1,234" thousands)
-    t = t.replace(/(\d),(\d{1,2})(?=%|\s|[-–)\]])/g, '$1.$2');
+    // Lookbehind prevents matching digits after a decimal point (e.g., "1.05, 2.05")
+    t = t.replace(/(?<!\.\d)(\d),(\d{1,2})(?=%|[-–)\]])/g, '$1.$2');
     return t;
+  }
+
+  // Ensure CI lower ≤ upper (swap if reversed from regex capture)
+  function _orderCI(result, loKey, hiKey) {
+    if (result[loKey] != null && result[hiKey] != null && result[loKey] > result[hiKey]) {
+      const tmp = result[loKey]; result[loKey] = result[hiKey]; result[hiKey] = tmp;
+    }
   }
 
   function extractDTAFromAbstract(text) {
@@ -5562,6 +5569,16 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       if (result.sensitivity > 0.99 && result.specificity < 0.10) result._plausibilityWarning = 'extreme-imbalance';
       if (result.specificity > 0.99 && result.sensitivity < 0.10) result._plausibilityWarning = 'extreme-imbalance';
     }
+
+    // CI bounds ordering — swap if regex captured in reversed order
+    _orderCI(result, 'sensLCI', 'sensUCI');
+    _orderCI(result, 'specLCI', 'specUCI');
+    _orderCI(result, 'aucLCI', 'aucUCI');
+    _orderCI(result, 'ppvLCI', 'ppvUCI');
+    _orderCI(result, 'npvLCI', 'npvUCI');
+    _orderCI(result, 'lrPlusLCI', 'lrPlusUCI');
+    _orderCI(result, 'lrMinusLCI', 'lrMinusUCI');
+    _orderCI(result, 'dorLCI', 'dorUCI');
 
     // CI containment validation (from V2 advanced_validator.py)
     const _ciCheck = (point, lo, hi, label) => {
@@ -14547,7 +14564,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         if (inflResult && !inflResult.error) {
           let html = '<h4 style="margin-bottom:8px">Influence Diagnostics (Cook\'s D &amp; DFBETAS)</h4>';
           html += '<table style="width:100%;font-size:0.82rem;border-collapse:collapse">';
-          html += '<thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:4px 8px">Study</th><th>DFBETA Sens</th><th>DFBETA Spec</th><th>Cook\'s D</th><th>Status</th></tr></thead><tbody>';
+          html += '<thead><tr style="border-bottom:2px solid var(--border)"><th scope="col" style="text-align:left;padding:4px 8px">Study</th><th scope="col">DFBETA Sens</th><th scope="col">DFBETA Spec</th><th scope="col">Cook\'s D</th><th scope="col">Status</th></tr></thead><tbody>';
           const thr = inflResult.threshold;
           inflResult.diagnostics.forEach((d, i) => {
             if (d.error) return;
@@ -14592,14 +14609,14 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
           const copas = copasSelectionModel(result.studyData, result);
           if (copas && !copas.error) {
             html += '<h5 style="margin-top:16px;margin-bottom:6px">Copas Selection Model</h5>';
-            html += '<table style="font-size:0.82rem;border-collapse:collapse">';
-            html += '<tr><td style="padding:2px 8px">Converged</td><td style="padding:2px 8px;font-weight:600">' + (copas.converged ? 'Yes (' + copas.iterations + ' iter)' : 'No') + '</td></tr>';
-            html += '<tr><td style="padding:2px 8px">Unadjusted Sens</td><td style="padding:2px 8px">' + (copas.unadjusted.sens * 100).toFixed(1) + '%</td></tr>';
-            html += '<tr><td style="padding:2px 8px">Adjusted Sens</td><td style="padding:2px 8px;font-weight:600">' + (copas.adjusted.sens * 100).toFixed(1) + '% (' + (copas.adjusted.sensChange >= 0 ? '+' : '') + (copas.adjusted.sensChange * 100).toFixed(1) + '%)</td></tr>';
-            html += '<tr><td style="padding:2px 8px">Unadjusted Spec</td><td style="padding:2px 8px">' + (copas.unadjusted.spec * 100).toFixed(1) + '%</td></tr>';
-            html += '<tr><td style="padding:2px 8px">Adjusted Spec</td><td style="padding:2px 8px;font-weight:600">' + (copas.adjusted.spec * 100).toFixed(1) + '% (' + (copas.adjusted.specChange >= 0 ? '+' : '') + (copas.adjusted.specChange * 100).toFixed(1) + '%)</td></tr>';
-            html += '<tr><td style="padding:2px 8px">Down-weighted studies</td><td style="padding:2px 8px">' + copas.selection.downWeighted + ' of ' + copas.nStudies + '</td></tr>';
-            html += '<tr><td style="padding:2px 8px">Expected unpublished</td><td style="padding:2px 8px">' + copas.selection.expectedUnpublished + '</td></tr>';
+            html += '<table style="font-size:0.82rem;border-collapse:collapse"><caption class="sr-only">Copas selection model results</caption>';
+            html += '<tr><th scope="row" style="padding:2px 8px;text-align:left;font-weight:400">Converged</th><td style="padding:2px 8px;font-weight:600">' + (copas.converged ? 'Yes (' + copas.iterations + ' iter)' : 'No') + '</td></tr>';
+            html += '<tr><th scope="row" style="padding:2px 8px;text-align:left;font-weight:400">Unadjusted Sens</th><td style="padding:2px 8px">' + (copas.unadjusted.sens * 100).toFixed(1) + '%</td></tr>';
+            html += '<tr><th scope="row" style="padding:2px 8px;text-align:left;font-weight:400">Adjusted Sens</th><td style="padding:2px 8px;font-weight:600">' + (copas.adjusted.sens * 100).toFixed(1) + '% (' + (copas.adjusted.sensChange >= 0 ? '+' : '') + (copas.adjusted.sensChange * 100).toFixed(1) + '%)</td></tr>';
+            html += '<tr><th scope="row" style="padding:2px 8px;text-align:left;font-weight:400">Unadjusted Spec</th><td style="padding:2px 8px">' + (copas.unadjusted.spec * 100).toFixed(1) + '%</td></tr>';
+            html += '<tr><th scope="row" style="padding:2px 8px;text-align:left;font-weight:400">Adjusted Spec</th><td style="padding:2px 8px;font-weight:600">' + (copas.adjusted.spec * 100).toFixed(1) + '% (' + (copas.adjusted.specChange >= 0 ? '+' : '') + (copas.adjusted.specChange * 100).toFixed(1) + '%)</td></tr>';
+            html += '<tr><th scope="row" style="padding:2px 8px;text-align:left;font-weight:400">Down-weighted studies</th><td style="padding:2px 8px">' + copas.selection.downWeighted + ' of ' + copas.nStudies + '</td></tr>';
+            html += '<tr><th scope="row" style="padding:2px 8px;text-align:left;font-weight:400">Expected unpublished</th><td style="padding:2px 8px">' + copas.selection.expectedUnpublished + '</td></tr>';
             html += '</table>';
             html += '<p style="font-size:0.75rem;color:var(--text-muted);margin-top:4px">EM-based IPW selection model. Large adjustments suggest possible publication bias.</p>';
           }
@@ -14612,11 +14629,12 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
           const pc = pCurveAnalysis(result.studyData);
           if (pc && !pc.error) {
             html += '<h5 style="margin-top:16px;margin-bottom:6px">P-Curve Analysis</h5>';
-            html += '<table style="font-size:0.82rem;border-collapse:collapse">';
-            html += '<tr><td style="padding:2px 8px">Significant studies</td><td style="padding:2px 8px">' + pc.nSignificant + ' of ' + pc.nTotal + '</td></tr>';
-            html += '<tr><td style="padding:2px 8px">p &lt; 0.025 (right skew)</td><td style="padding:2px 8px">' + pc.nBelow025 + ' of ' + pc.nSignificant + '</td></tr>';
-            html += '<tr><td style="padding:2px 8px">Binomial p-value</td><td style="padding:2px 8px;font-weight:600;color:' + (pc.rightSkewed ? 'var(--success)' : pc.flat ? 'var(--danger)' : 'inherit') + '">' + pc.binomialP.toFixed(4) + '</td></tr>';
-            html += '<tr><td style="padding:2px 8px">Interpretation</td><td style="padding:2px 8px">' + escapeHtml(pc.interpretation) + '</td></tr>';
+            html += '<table style="font-size:0.82rem;border-collapse:collapse"><caption class="sr-only">P-curve analysis results</caption>';
+            html += '<tr><th scope="row" style="padding:2px 8px;text-align:left;font-weight:400">Significant studies</th><td style="padding:2px 8px">' + pc.nSignificant + ' of ' + pc.nTotal + '</td></tr>';
+            html += '<tr><th scope="row" style="padding:2px 8px;text-align:left;font-weight:400">p &lt; 0.025 (right skew)</th><td style="padding:2px 8px">' + pc.nBelow025 + ' of ' + pc.nSignificant + '</td></tr>';
+            const pcSigLabel = pc.rightSkewed ? ' (significant)' : pc.flat ? ' (flat)' : '';
+            html += '<tr><th scope="row" style="padding:2px 8px;text-align:left;font-weight:400">Binomial p-value</th><td style="padding:2px 8px;font-weight:600;color:' + (pc.rightSkewed ? 'var(--success)' : pc.flat ? 'var(--danger)' : 'inherit') + '">' + pc.binomialP.toFixed(4) + pcSigLabel + '</td></tr>';
+            html += '<tr><th scope="row" style="padding:2px 8px;text-align:left;font-weight:400">Interpretation</th><td style="padding:2px 8px">' + escapeHtml(pc.interpretation) + '</td></tr>';
             html += '</table>';
             if (pc.caveat) html += '<p style="font-size:0.72rem;color:var(--text-muted);margin-top:4px;font-style:italic">' + escapeHtml(pc.caveat) + '</p>';
           }
@@ -14898,9 +14916,10 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       stLines.push('spearman logit_sens logit_fpr');
       stLines.push('');
       stLines.push('* Deeks funnel plot asymmetry test');
-      stLines.push('gen eff_ss = 1 / sqrt(tp + fp + fn + tn)');
+      stLines.push('gen ess = 4 * (tp + fn) * (fp + tn) / (tp + fp + fn + tn)');
+      stLines.push('gen inv_sqrt_ess = 1 / sqrt(ess)');
       stLines.push('gen log_dor = ln(((tp + 0.5) * (tn + 0.5)) / ((fp + 0.5) * (fn + 0.5)))');
-      stLines.push('regress log_dor eff_ss');
+      stLines.push('regress log_dor inv_sqrt_ess [aweight=ess]');
       stLines.push('');
       stLines.push('* Leave-one-out sensitivity analysis');
       stLines.push('local n = _N');
