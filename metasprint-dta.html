@@ -1331,15 +1331,20 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
                 <option value="">-- Select a validated topic --</option>
                 <optgroup label="Cardiovascular">
                   <option value="acute coronary syndrome|troponin">Acute coronary syndrome + Troponin</option>
+                  <option value="carotid stenosis|CT angiography">Carotid stenosis + CT angiography</option>
                   <option value="coronary artery disease|CT-FFR">Coronary artery disease + CT-FFR</option>
+                  <option value="coronary artery disease|stress echocardiography">Coronary artery disease + Stress echo</option>
                   <option value="deep vein thrombosis|ultrasound">Deep vein thrombosis + Ultrasound</option>
                   <option value="deep vein thrombosis|D-dimer">Deep vein thrombosis + D-dimer</option>
                   <option value="heart failure|BNP">Heart failure + BNP</option>
+                  <option value="myocarditis|cardiac MRI">Myocarditis + Cardiac MRI</option>
                   <option value="pulmonary embolism|CT pulmonary angiography">Pulmonary embolism + CT pulmonary angiography</option>
                 </optgroup>
                 <optgroup label="Infection / Microbiology">
+                  <option value="bacterial meningitis|CSF lactate">Bacterial meningitis + CSF lactate</option>
                   <option value="bacteremia|procalcitonin">Bacteremia + Procalcitonin</option>
                   <option value="Clostridioides difficile infection|GDH test">C. difficile + GDH test</option>
+                  <option value="COVID-19|chest CT">COVID-19 + Chest CT</option>
                   <option value="COVID-19|rapid antigen test">COVID-19 + Rapid antigen test</option>
                   <option value="group B streptococcus|PCR">Group B streptococcus + PCR</option>
                   <option value="influenza|rapid antigen test">Influenza + Rapid antigen test</option>
@@ -1351,48 +1356,63 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
                   <option value="tuberculosis|Xpert MTB/RIF">Tuberculosis + Xpert MTB/RIF</option>
                   <option value="tuberculosis|Xpert Ultra">Tuberculosis + Xpert Ultra</option>
                   <option value="urinary tract infection|dipstick">Urinary tract infection + Dipstick</option>
+                  <option value="hepatitis C|anti-HCV antibody">Hepatitis C + Anti-HCV antibody</option>
+                  <option value="peptic ulcer|urea breath test">H. pylori + Urea breath test</option>
                 </optgroup>
                 <optgroup label="Cancer / Oncology">
                   <option value="bladder cancer|urine cytology">Bladder cancer + Urine cytology</option>
+                  <option value="colorectal liver metastases|contrast-enhanced ultrasound">Colorectal liver mets + CEUS</option>
                   <option value="breast cancer|mammography">Breast cancer + Mammography</option>
                   <option value="cervical cancer|HPV test">Cervical cancer + HPV test</option>
                   <option value="colorectal cancer|fecal immunochemical test">Colorectal cancer + Fecal immunochemical test</option>
                   <option value="hepatocellular carcinoma|AFP">Hepatocellular carcinoma + AFP</option>
                   <option value="lung cancer screening|low-dose CT">Lung cancer screening + Low-dose CT</option>
                   <option value="melanoma|dermoscopy">Melanoma + Dermoscopy</option>
+                  <option value="lymphoma|PET-CT">Lymphoma + PET-CT</option>
                   <option value="ovarian cancer|ultrasound">Ovarian cancer + Ultrasound</option>
+                  <option value="pancreatic cancer|endoscopic ultrasound">Pancreatic cancer + EUS</option>
                   <option value="prostate cancer|PSMA PET">Prostate cancer + PSMA PET</option>
+                  <option value="thyroid cancer|fine needle aspiration">Thyroid cancer + FNA</option>
                 </optgroup>
                 <optgroup label="Abdominal / GI">
                   <option value="acute appendicitis|CT">Acute appendicitis + CT</option>
                   <option value="appendicitis|ultrasound">Appendicitis + Ultrasound</option>
                   <option value="celiac disease|tissue transglutaminase">Celiac disease + tTG antibody</option>
+                  <option value="choledocholithiasis|MRCP">Choledocholithiasis + MRCP</option>
                   <option value="inflammatory bowel disease|fecal calprotectin">IBD + Fecal calprotectin</option>
                   <option value="liver fibrosis|elastography">Liver fibrosis + Elastography</option>
                   <option value="NAFLD fibrosis|FIB-4 score">NAFLD fibrosis + FIB-4 score</option>
                 </optgroup>
-                <optgroup label="Musculoskeletal">
+                <optgroup label="Musculoskeletal / Emergency">
+                  <option value="abdominal trauma|FAST ultrasound">Abdominal trauma + FAST</option>
                   <option value="ACL tear|MRI">ACL tear + MRI</option>
                   <option value="carpal tunnel syndrome|ultrasound">Carpal tunnel syndrome + Ultrasound</option>
+                  <option value="fracture|point-of-care ultrasound">Fracture + Point-of-care US</option>
                   <option value="hip fracture|MRI">Hip fracture + MRI</option>
                   <option value="kidney stones|ultrasound">Kidney stones + Ultrasound</option>
                   <option value="rotator cuff tear|MRI">Rotator cuff tear + MRI</option>
+                  <option value="septic arthritis|synovial fluid analysis">Septic arthritis + Synovial fluid</option>
                 </optgroup>
                 <optgroup label="Respiratory">
                   <option value="pneumonia|lung ultrasound">Pneumonia + Lung ultrasound</option>
                   <option value="pneumothorax|point-of-care ultrasound">Pneumothorax + Point-of-care ultrasound</option>
                 </optgroup>
                 <optgroup label="Endocrine / Metabolic">
+                  <option value="diabetes mellitus|HbA1c">Diabetes mellitus + HbA1c</option>
                   <option value="iron deficiency anemia|ferritin">Iron deficiency anemia + Ferritin</option>
                   <option value="thyroid nodules|ultrasound">Thyroid nodules + Ultrasound</option>
                 </optgroup>
-                <optgroup label="Rheumatology">
+                <optgroup label="Rheumatology / Autoimmune">
+                  <option value="giant cell arteritis|temporal artery ultrasound">Giant cell arteritis + Temporal artery US</option>
                   <option value="rheumatoid arthritis|anti-CCP">Rheumatoid arthritis + Anti-CCP</option>
+                  <option value="systemic lupus erythematosus|ANA">SLE + ANA</option>
                 </optgroup>
                 <optgroup label="OB/GYN / Prenatal">
                   <option value="Down syndrome|cell-free DNA screening">Down syndrome + Cell-free DNA screening</option>
+                  <option value="ectopic pregnancy|transvaginal ultrasound">Ectopic pregnancy + Transvaginal US</option>
                   <option value="endometriosis|MRI">Endometriosis + MRI</option>
                   <option value="placenta accreta|ultrasound">Placenta accreta + Ultrasound</option>
+                  <option value="preterm labor|fetal fibronectin">Preterm labor + Fetal fibronectin</option>
                 </optgroup>
                 <optgroup label="Ophthalmology">
                   <option value="diabetic retinopathy|AI fundus screening">Diabetic retinopathy + AI fundus screening</option>
@@ -1403,7 +1423,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
                 </optgroup>
               </select>
             </label>
-            <span style="font-size:0.72rem;color:var(--text-muted);align-self:flex-end;padding-bottom:4px">48 validated topics across 11 specialties</span>
+            <span style="font-size:0.72rem;color:var(--text-muted);align-self:flex-end;padding-bottom:4px">68 validated topics across 13 specialties</span>
           </div>
           <div class="oa-search-row">
             <label>Target condition
@@ -4393,6 +4413,21 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       ['stop-bang questionnaire', ['STOP-BANG', '"STOP-Bang questionnaire"', '"STOP-BANG"']],
       ['cell-free dna screening', ['"cell-free DNA"', 'cfDNA', '"non-invasive prenatal testing"', 'NIPT', '"prenatal screening"']],
       ['ct pulmonary angiography', ['"CT pulmonary angiography"', 'CTPA', '"computed tomography pulmonary angiography"']],
+      ['ct angiography', ['"CT angiography"', 'CTA', '"computed tomography angiography"']],
+      ['stress echocardiography', ['"stress echocardiography"', '"dobutamine stress echo"', '"exercise echocardiography"', '"stress echo"']],
+      ['cardiac mri', ['"cardiac MRI"', '"cardiac magnetic resonance"', 'CMR', '"cardiovascular MRI"']],
+      ['endoscopic ultrasound', ['"endoscopic ultrasound"', 'EUS', '"endosonography"', '"endoscopic ultrasonography"']],
+      ['fine needle aspiration', ['"fine needle aspiration"', 'FNA', '"FNAB"', '"fine-needle aspiration biopsy"', '"thyroid FNA"']],
+      ['fast ultrasound', ['FAST', '"focused assessment with sonography"', '"focused abdominal sonography"', '"E-FAST"', '"emergency ultrasound"']],
+      ['synovial fluid analysis', ['"synovial fluid"', '"joint aspiration"', '"arthrocentesis"', '"synovial analysis"']],
+      ['temporal artery ultrasound', ['"temporal artery ultrasound"', '"temporal artery doppler"', '"cranial ultrasound"', '"temporal ultrasound"']],
+      ['transvaginal ultrasound', ['"transvaginal ultrasound"', '"transvaginal sonography"', 'TVUS', '"endovaginal ultrasound"']],
+      ['fetal fibronectin', ['"fetal fibronectin"', 'fFN', '"fibronectin test"']],
+      ['contrast-enhanced ultrasound', ['"contrast-enhanced ultrasound"', 'CEUS', '"contrast ultrasound"', '"SonoVue"']],
+      ['csf lactate', ['"CSF lactate"', '"cerebrospinal fluid lactate"']],
+      ['anti-hcv antibody', ['"anti-HCV"', '"HCV antibody"', '"hepatitis C antibody"', '"HCV serology"']],
+      ['urea breath test', ['"urea breath test"', 'UBT', '"C13 breath test"', '"C14 breath test"', '"H. pylori breath"']],
+      ['chest ct', ['"chest CT"', '"thoracic CT"', '"chest computed tomography"', '"pulmonary CT"']],
       ['ai fundus screening', ['"artificial intelligence" fundus', '"deep learning" retina', '"automated" "retinal screening"', '"AI screening" diabetic retinopathy']],
       ['rapid antigen test', ['"rapid antigen test"', '"rapid antigen"', '"rapid diagnostic test"', '"point-of-care antigen"', '"antigen detection test"', '"immunochromatographic"']],
       ['rapid diagnostic test', ['"rapid diagnostic test"', 'RDT', '"rapid test"', '"immunochromatographic"', '"antigen detection"']],
@@ -4424,6 +4459,11 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       ['bnp', ['BNP', '"brain natriuretic peptide"', '"NT-proBNP"', '"N-terminal pro-BNP"', '"natriuretic peptide"']],
       ['pcr', ['PCR', '"polymerase chain reaction"', '"real-time PCR"', '"molecular test"', '"nucleic acid amplification"']],
       ['hpv test', ['"HPV test"', '"HPV DNA"', '"human papillomavirus"', '"HPV testing"', '"HPV screening"']],
+      ['hba1c', ['HbA1c', '"glycated hemoglobin"', '"glycosylated hemoglobin"', '"hemoglobin A1c"', '"A1C"']],
+      ['ana', ['ANA', '"antinuclear antibody"', '"antinuclear antibodies"', '"ANA test"']],
+      ['mrcp', ['MRCP', '"magnetic resonance cholangiopancreatography"']],
+      ['pet-ct', ['"PET-CT"', '"PET/CT"', '"FDG-PET"', '"positron emission tomography"']],
+      ['psma pet', ['"PSMA PET"', '"68Ga-PSMA"', '"PSMA-PET/CT"', '"prostate-specific membrane antigen"']],
       // AFP excluded — already passing without expansion, adding studies causes regression
     ];
     for (const [key, terms] of expansions) {
