@@ -1357,7 +1357,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
                   <option value="tuberculosis|Xpert Ultra">Tuberculosis + Xpert Ultra</option>
                   <option value="urinary tract infection|dipstick">Urinary tract infection + Dipstick</option>
                   <option value="hepatitis C|anti-HCV antibody">Hepatitis C + Anti-HCV antibody</option>
-                  <option value="peptic ulcer|urea breath test">H. pylori + Urea breath test</option>
+                  <option value="Helicobacter pylori infection|urea breath test">H. pylori + Urea breath test</option>
                 </optgroup>
                 <optgroup label="Cancer / Oncology">
                   <option value="bladder cancer|urine cytology">Bladder cancer + Urine cytology</option>
@@ -4420,7 +4420,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       ['fine needle aspiration', ['"fine needle aspiration"', 'FNA', '"FNAB"', '"fine-needle aspiration biopsy"', '"thyroid FNA"']],
       ['fast ultrasound', ['FAST', '"focused assessment with sonography"', '"focused abdominal sonography"', '"E-FAST"', '"emergency ultrasound"']],
       ['synovial fluid analysis', ['"synovial fluid"', '"joint aspiration"', '"arthrocentesis"', '"synovial analysis"']],
-      ['temporal artery ultrasound', ['"temporal artery ultrasound"', '"temporal artery doppler"', '"cranial ultrasound"', '"temporal ultrasound"']],
+      ['temporal artery ultrasound', ['"temporal artery ultrasound"', '"temporal artery doppler"', '"temporal artery sonography"', '"temporal ultrasound"']],
       ['transvaginal ultrasound', ['"transvaginal ultrasound"', '"transvaginal sonography"', 'TVUS', '"endovaginal ultrasound"']],
       ['fetal fibronectin', ['"fetal fibronectin"', 'fFN', '"fibronectin test"']],
       ['contrast-enhanced ultrasound', ['"contrast-enhanced ultrasound"', 'CEUS', '"contrast ultrasound"', '"SonoVue"']],
@@ -4457,7 +4457,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       ['gdh', ['GDH', '"glutamate dehydrogenase"', '"GDH antigen"']],
       ['oct', ['OCT', '"optical coherence tomography"', '"retinal nerve fiber layer"', 'RNFL', '"ganglion cell complex"']],
       ['bnp', ['BNP', '"brain natriuretic peptide"', '"NT-proBNP"', '"N-terminal pro-BNP"', '"natriuretic peptide"']],
-      ['pcr', ['PCR', '"polymerase chain reaction"', '"real-time PCR"', '"molecular test"', '"nucleic acid amplification"']],
+      ['pcr', ['"PCR test"', '"PCR detection"', '"polymerase chain reaction"', '"real-time PCR"', '"PCR assay"']],
       ['hpv test', ['"HPV test"', '"HPV DNA"', '"human papillomavirus"', '"HPV testing"', '"HPV screening"']],
       ['hba1c', ['HbA1c', '"glycated hemoglobin"', '"glycosylated hemoglobin"', '"hemoglobin A1c"', '"A1C"']],
       ['ana', ['ANA', '"antinuclear antibody"', '"antinuclear antibodies"', '"ANA test"']],
@@ -5064,6 +5064,25 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     if (/sleep apnea|osa\b/i.test(c)) return 0.50;
     if (/diabetic retinop/i.test(c)) return 0.25;
     if (/d.dimer/i.test(t)) return 0.25;
+    // Wave 3 topics (2026-03-14)
+    if (/myocarditis/i.test(c)) return 0.35;
+    if (/carotid/i.test(c)) return 0.35;
+    if (/helicobacter|h\.\s*pylori|peptic ulcer/i.test(c)) return 0.45;
+    if (/hepatitis c|hcv/i.test(c)) return 0.15;
+    if (/lupus|sle\b/i.test(c)) return 0.30;
+    if (/ectopic pregnan/i.test(c)) return 0.12;
+    if (/giant cell arter|temporal arter/i.test(c)) return 0.25;
+    if (/bacterial meningitis|meningitis/i.test(c)) return 0.35;
+    if (/preterm labo/i.test(c)) return 0.20;
+    if (/lymphoma/i.test(c)) return 0.40;
+    if (/pancreatic/i.test(c)) return 0.45;
+    if (/choledocholithiasis|bile duct stone/i.test(c)) return 0.35;
+    if (/colorectal.*metastas|liver metastas/i.test(c)) return 0.35;
+    if (/septic arthritis/i.test(c)) return 0.20;
+    if (/fracture/i.test(c) && /ultrasound|pocus/i.test(t)) return 0.35;
+    if (/diabetes mellitus|diabetes\b/i.test(c) && /hba1c/i.test(t)) return 0.25;
+    if (/thyroid cancer/i.test(c)) return 0.20;
+    if (/abdominal trauma/i.test(c)) return 0.25;
     // Generic clinical DTA study fallback — most DTA studies enrich to ~35-45%
     return 0.40;
   }

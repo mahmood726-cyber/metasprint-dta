@@ -53,7 +53,7 @@ topics = [
      [0.85, 0.95], [0.90, 0.99], "Defined 2019, Defined 2012 Cochrane"),
     ("choledocholithiasis", "MRCP",
      [0.85, 0.97], [0.88, 0.97], "Defined 2019, Defined 2015 Cochrane, Defined 2012"),
-    ("peptic ulcer", "urea breath test",
+    ("Helicobacter pylori infection", "urea breath test",
      [0.88, 0.97], [0.93, 0.98], "Defined 2010 Cochrane, Defined 2019, Best 2018"),
 
     # ---- EMERGENCY MEDICINE ----
