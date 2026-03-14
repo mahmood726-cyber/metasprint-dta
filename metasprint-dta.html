@@ -10866,6 +10866,699 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
   function youdenIndex(sens, spec) { return sens + spec - 1; }
   function numberNeededToDiagnose(sens, spec) { const j = youdenIndex(sens, spec); return j > 0 ? Math.ceil(1 / j) : null; }
 
+  // =========================================================================
+  // TIER 1 FEATURES (ported from DTA Pro Review)
+  // =========================================================================
+
+  // --- 1. Cook's Distance & DFBETAS Influence Diagnostics ---
+  // LOO bivariate refit: DFBETA = (full - loo) / SE, threshold 2/sqrt(k)
+  function computeInfluenceDiagnostics(studies, confLevel) {
+    confLevel = confLevel ?? 0.95;
+    const n = studies.length;
+    if (n < 4) return { error: 'Need at least 4 studies for influence diagnostics' };
+
+    const fullModel = improvedBivariatePool(studies, confLevel);
+    if (!fullModel) return { error: 'Bivariate model failed on full dataset' };
+
+    const alpha = 1 - confLevel;
+    const zCrit = normalQuantile(1 - alpha / 2);
+    const seSensFull = (fullModel.sensCI[1] - fullModel.sensCI[0]) / (2 * zCrit);
+    const seSpecFull = (fullModel.specCI[1] - fullModel.specCI[0]) / (2 * zCrit);
+    const threshold = 2 / Math.sqrt(n);
+
+    const diagnostics = [];
+    for (let i = 0; i < n; i++) {
+      const subset = studies.filter((_, j) => j !== i);
+      const looModel = improvedBivariatePool(subset, confLevel);
+      if (!looModel) {
+        diagnostics.push({ idx: i, error: true });
+        continue;
+      }
+      const dfbetaSens = seSensFull > 0 ? (fullModel.pooledSens - looModel.pooledSens) / seSensFull : 0;
+      const dfbetaSpec = seSpecFull > 0 ? (fullModel.pooledSpec - looModel.pooledSpec) / seSpecFull : 0;
+      // Cook's D approximation: DFBETA^2 / k
+      const cooksDSens = (dfbetaSens * dfbetaSens) / n;
+      const cooksDSpec = (dfbetaSpec * dfbetaSpec) / n;
+      const cooksD = cooksDSens + cooksDSpec;
+      const influential = Math.abs(dfbetaSens) > threshold || Math.abs(dfbetaSpec) > threshold;
+      diagnostics.push({
+        idx: i,
+        dfbetaSens, dfbetaSpec,
+        cooksDSens, cooksDSpec, cooksD,
+        influential,
+        looSens: looModel.pooledSens, looSpec: looModel.pooledSpec,
+        sensChange: fullModel.pooledSens - looModel.pooledSens,
+        specChange: fullModel.pooledSpec - looModel.pooledSpec
+      });
+    }
+    return {
+      method: 'influence_diagnostics',
+      k: n, threshold,
+      fullModel: { sens: fullModel.pooledSens, spec: fullModel.pooledSpec },
+      diagnostics,
+      nInfluential: diagnostics.filter(d => d.influential).length,
+      maxCooksD: Math.max(...diagnostics.filter(d => !d.error).map(d => d.cooksD))
+    };
+  }
+
+  // --- 2. Copas-Like EM Selection Model for Publication Bias ---
+  // EM-based IPW on logit scale, beta grid 0-3, convergence 1e-5
+  function copasSelectionModel(studies, pooledResult, options) {
+    options = options || {};
+    const n = studies.length;
+    if (n < 4) return { error: 'Need at least 4 studies for Copas selection modeling' };
+
+    const clampProb = p => Math.max(1e-6, Math.min(1 - 1e-6, p));
+    const clampPos = x => Math.max(1e-12, x);
+    const c1 = Math.SQRT1_2, c2 = Math.SQRT1_2;
+
+    const pSelect = Math.max(0.35, Math.min(0.99, options.pSelect ?? 0.75));
+    const maxIter = Math.max(5, Math.min(200, options.maxIter ?? 80));
+    const tol = Math.max(1e-8, options.tol ?? 1e-5);
+
+    const rows = studies.map(s => {
+      const v1 = clampPos(s.varLogitSens ?? (1 / Math.max(0.5, s.tp) + 1 / Math.max(0.5, s.fn)));
+      const v2 = clampPos(s.varLogitSpec ?? (1 / Math.max(0.5, s.fp) + 1 / Math.max(0.5, s.tn)));
+      const y1 = s.logitSens ?? logit(clampProb(s.sens ?? 0.5));
+      const y2 = s.logitSpec ?? logit(clampProb(s.spec ?? 0.5));
+      const vi = clampPos(c1 * c1 * v1 + c2 * c2 * v2);
+      return { y1, y2, v1, v2, vi, t: (c1 * y1 + c2 * y2) / Math.sqrt(vi) };
+    }).filter(r => isFinite(r.y1) && isFinite(r.y2) && isFinite(r.t));
+
+    if (rows.length < 4) return { error: 'Insufficient finite study statistics' };
+
+    const baseSens = clampProb(pooledResult?.pooledSens ?? 0.5);
+    const baseSpec = clampProb(pooledResult?.pooledSpec ?? 0.5);
+    let mu1 = logit(baseSens), mu2 = logit(baseSpec);
+    let tau2Sens = Math.max(0, pooledResult?.tau2_sens ?? 0);
+    let tau2Spec = Math.max(0, pooledResult?.tau2_spec ?? 0);
+    const rho = Math.max(-0.95, Math.min(0.95, pooledResult?.rho ?? 0));
+
+    const betaGrid = Array.from({ length: 61 }, (_, i) => i * 0.05);
+
+    const pubProb = (alpha, beta, muC, cO) => {
+      let sumInvB = 0;
+      for (const r of rows) {
+        const num = beta * (muC / Math.sqrt(r.vi)) + alpha;
+        const den = Math.sqrt(clampPos(1 + beta * beta * (1 + cO / r.vi)));
+        sumInvB += 1 / clampPos(normalCDF(num / den));
+      }
+      return rows.length / clampPos(sumInvB);
+    };
+
+    const solveAlpha = (beta, muC, cO) => {
+      const f = a => pubProb(a, beta, muC, cO) - pSelect;
+      let lo = -12, hi = 12, flo = f(lo), fhi = f(hi);
+      for (let e = 0; e < 8 && isFinite(flo) && isFinite(fhi) && flo * fhi > 0; e++) {
+        lo -= 4; hi += 4; flo = f(lo); fhi = f(hi);
+      }
+      if (!isFinite(flo) || !isFinite(fhi) || flo * fhi > 0) return NaN;
+      for (let i = 0; i < 80; i++) {
+        const mid = (lo + hi) / 2, fmid = f(mid);
+        if (!isFinite(fmid)) return NaN;
+        if (Math.abs(fmid) < 1e-8) return mid;
+        if (flo * fmid <= 0) { hi = mid; fhi = fmid; } else { lo = mid; flo = fmid; }
+      }
+      return (lo + hi) / 2;
+    };
+
+    const updateTau2 = (vals, vars, mean, ipw) => {
+      let sw = 0, sw2 = 0, q = 0;
+      for (let i = 0; i < vals.length; i++) {
+        const w = ipw[i] / clampPos(vars[i]); sw += w; sw2 += w * w;
+        q += w * (vals[i] - mean) * (vals[i] - mean);
+      }
+      const c = sw - sw2 / clampPos(sw);
+      return c > 0 ? Math.max(0, (q - (vals.length - 1)) / c) : 0;
+    };
+
+    let bestAlpha = NaN, bestBeta = NaN, bestLL = -Infinity, bestAVals = rows.map(() => 1);
+    let converged = false, iter = 0, lastDelta = Infinity;
+
+    for (iter = 1; iter <= maxIter; iter++) {
+      const muC = c1 * mu1 + c2 * mu2;
+      const covBtw = rho * Math.sqrt(Math.max(0, tau2Sens * tau2Spec));
+      const cO = Math.max(0, c1 * c1 * tau2Sens + c2 * c2 * tau2Spec + 2 * c1 * c2 * covBtw);
+
+      let bestIter = { ll: -Infinity, beta: NaN, alpha: NaN, aVals: null };
+      for (const bc of betaGrid) {
+        const beta = Math.max(0, bc);
+        const alpha = solveAlpha(beta, muC, cO);
+        if (!isFinite(alpha)) continue;
+        let ll = 0; const aVals = []; let valid = true;
+        for (const r of rows) {
+          const a = clampPos(normalCDF(beta * r.t + alpha));
+          const bNum = beta * (muC / Math.sqrt(r.vi)) + alpha;
+          const bDen = Math.sqrt(clampPos(1 + beta * beta * (1 + cO / r.vi)));
+          const b = clampPos(normalCDF(bNum / bDen));
+          if (!isFinite(a) || !isFinite(b)) { valid = false; break; }
+          ll += Math.log(a) - Math.log(b); aVals.push(a);
+        }
+        if (valid && isFinite(ll) && ll > bestIter.ll) bestIter = { ll, beta, alpha, aVals };
+      }
+      if (!isFinite(bestIter.beta) || !bestIter.aVals) return { error: 'Selection model optimization failed' };
+
+      const ipw = bestIter.aVals.map(a => 1 / clampPos(a));
+      let sw1 = 0, sw2 = 0, swy1 = 0, swy2 = 0;
+      for (let i = 0; i < rows.length; i++) {
+        const w1 = ipw[i] / clampPos(rows[i].v1 + tau2Sens);
+        const w2 = ipw[i] / clampPos(rows[i].v2 + tau2Spec);
+        sw1 += w1; sw2 += w2; swy1 += w1 * rows[i].y1; swy2 += w2 * rows[i].y2;
+      }
+      const mu1New = swy1 / clampPos(sw1), mu2New = swy2 / clampPos(sw2);
+      const tau2SNew = updateTau2(rows.map(r => r.y1), rows.map(r => r.v1), mu1New, ipw);
+      const tau2PNew = updateTau2(rows.map(r => r.y2), rows.map(r => r.v2), mu2New, ipw);
+      if (!isFinite(mu1New) || !isFinite(mu2New)) return { error: 'Non-finite pooled estimates' };
+
+      lastDelta = Math.max(Math.abs(mu1New - mu1), Math.abs(mu2New - mu2),
+                           Math.abs(tau2SNew - tau2Sens), Math.abs(tau2PNew - tau2Spec));
+      mu1 = mu1New; mu2 = mu2New; tau2Sens = tau2SNew; tau2Spec = tau2PNew;
+      bestAlpha = bestIter.alpha; bestBeta = bestIter.beta; bestLL = bestIter.ll; bestAVals = bestIter.aVals;
+      if (lastDelta < tol) { converged = true; break; }
+    }
+
+    const adjSens = clampProb(invLogit(mu1)), adjSpec = clampProb(invLogit(mu2));
+    const uDOR = (baseSens * baseSpec) / clampPos((1 - baseSens) * (1 - baseSpec));
+    const aDOR = (adjSens * adjSpec) / clampPos((1 - adjSens) * (1 - adjSpec));
+    const avgSP = bestAVals.reduce((s, v) => s + v, 0) / bestAVals.length;
+
+    return {
+      method: 'copas_selection_model', nStudies: rows.length, converged, iterations: iter,
+      tolerance: tol, finalDelta: lastDelta,
+      selection: { pSelectTarget: pSelect, alpha: bestAlpha, beta: bestBeta,
+                   logLikelihood: bestLL, avgSelectionProb: avgSP,
+                   expectedUnpublished: Math.round(rows.length * (1 - pSelect) / pSelect),
+                   downWeighted: bestAVals.filter(a => a < 0.8).length },
+      unadjusted: { sens: baseSens, spec: baseSpec, dor: uDOR },
+      adjusted: { sens: adjSens, spec: adjSpec, dor: aDOR,
+                  sensChange: adjSens - baseSens, specChange: adjSpec - baseSpec },
+      heterogeneity: { tau2_sens: tau2Sens, tau2_spec: tau2Spec }
+    };
+  }
+
+  // --- 3. R Script Export Generator ---
+  // Generates reproducible mada + metafor R code from current study data
+  function generateRScript(studies, ccMethod) {
+    if (!studies || studies.length < 2) return '';
+    ccMethod = ccMethod ?? '0.5';
+    const date = new Date().toISOString().split('T')[0];
+    let code = '';
+    code += '# DTA Meta-Analysis — Generated by MetaSprint DTA\n';
+    code += '# Date: ' + date + '\n\n';
+    code += '# Install required packages (if not already installed)\n';
+    code += '# install.packages(c("mada", "metafor"))\n\n';
+    code += 'library(mada)\nlibrary(metafor)\n\n';
+    code += '# Study data\n';
+    code += 'dta_data <- data.frame(\n';
+    code += '  study = c(' + studies.map(s => '"' + (s.authorYear || s.study || 'Study').replace(/"/g, "'") + '"').join(', ') + '),\n';
+    code += '  TP = c(' + studies.map(s => parseInt(s.tp)).join(', ') + '),\n';
+    code += '  FP = c(' + studies.map(s => parseInt(s.fp)).join(', ') + '),\n';
+    code += '  FN = c(' + studies.map(s => parseInt(s.fn)).join(', ') + '),\n';
+    code += '  TN = c(' + studies.map(s => parseInt(s.tn)).join(', ') + ')\n)\n\n';
+    // Bivariate GLMM
+    code += '# ============================================\n';
+    code += '# Bivariate GLMM (Reitsma et al. 2005)\n';
+    code += '# ============================================\n\n';
+    code += 'fit <- reitsma(dta_data, method = "reml")\nsummary(fit)\n\n';
+    code += '# Pooled estimates\n';
+    code += 'cat("Pooled Sensitivity:", plogis(coef(fit)[1, "tsens"]), "\\n")\n';
+    code += 'cat("Pooled Specificity:", 1 - plogis(coef(fit)[1, "tfpr"]), "\\n")\n\n';
+    code += '# SROC curve\nplot(fit, sroclwd = 2, main = "SROC Curve")\n';
+    code += 'points(fpr(dta_data), sens(dta_data), pch = 19)\n\n';
+    code += '# AUC\ncat("AUC:", AUC(fit)$AUC, "\\n")\n\n';
+    // Forest plots
+    code += '# Forest plots\n';
+    code += 'forest(madad(dta_data), type = "sens", main = "Sensitivity")\n';
+    code += 'forest(madad(dta_data), type = "spec", main = "Specificity")\n\n';
+    // metafor univariate
+    code += '# ============================================\n';
+    code += '# Univariate analysis (metafor)\n';
+    code += '# ============================================\n\n';
+    code += 'dta_data$logit_sens <- qlogis(dta_data$TP / (dta_data$TP + dta_data$FN))\n';
+    code += 'dta_data$logit_spec <- qlogis(dta_data$TN / (dta_data$TN + dta_data$FP))\n';
+    code += 'dta_data$var_logit_sens <- 1/dta_data$TP + 1/dta_data$FN\n';
+    code += 'dta_data$var_logit_spec <- 1/dta_data$FP + 1/dta_data$TN\n\n';
+    code += 'ma_sens <- rma(yi = logit_sens, vi = var_logit_sens, data = dta_data, method = "REML")\n';
+    code += 'ma_spec <- rma(yi = logit_spec, vi = var_logit_spec, data = dta_data, method = "REML")\n\n';
+    code += 'cat("metafor Sensitivity:", plogis(ma_sens$beta), "\\n")\n';
+    code += 'cat("metafor Specificity:", plogis(ma_spec$beta), "\\n")\n\n';
+    // Heterogeneity
+    code += '# Heterogeneity\n';
+    code += 'cat("I2 (Sens):", ma_sens$I2, "%\\n")\n';
+    code += 'cat("I2 (Spec):", ma_spec$I2, "%\\n")\n\n';
+    // Deeks test
+    code += '# Publication bias (Deeks)\n';
+    code += 'dta_data$logDOR <- log((dta_data$TP * dta_data$TN) / (dta_data$FP * dta_data$FN))\n';
+    code += 'dta_data$ESS <- 4 * (dta_data$TP + dta_data$FN) * (dta_data$FP + dta_data$TN) / ';
+    code += '(dta_data$TP + dta_data$FP + dta_data$FN + dta_data$TN)\n';
+    code += 'deeks <- lm(logDOR ~ I(1/sqrt(ESS)), data = dta_data, weights = ESS)\n';
+    code += 'cat("Deeks p-value:", summary(deeks)$coefficients[2, 4], "\\n")\n';
+    return code;
+  }
+
+  // --- 4. Enhanced Clinical Utility: NND with CIs + Per-1000 Impact ---
+  function computeNNDWithCI(sens, spec, sensCI, specCI, confLevel) {
+    confLevel = confLevel ?? 0.95;
+    const j = youdenIndex(sens, spec);
+    const nnd = j > 0 ? 1 / j : null;
+    // Delta method SE for Youden: SE_J = sqrt(SE_sens^2 + SE_spec^2)
+    let nndCI = null;
+    if (sensCI && specCI && j > 0) {
+      const alpha = 1 - confLevel;
+      const z = normalQuantile(1 - alpha / 2);
+      const seSens = (sensCI[1] - sensCI[0]) / (2 * z);
+      const seSpec = (specCI[1] - specCI[0]) / (2 * z);
+      const seJ = Math.sqrt(seSens * seSens + seSpec * seSpec);
+      // NND = 1/J, SE_NND ≈ seJ / J^2 (delta method)
+      const seNND = seJ / (j * j);
+      nndCI = [Math.max(1, nnd - z * seNND), nnd + z * seNND];
+    }
+    return { nnd, nndCI, youden: j };
+  }
+
+  function computePer1000Impact(sens, spec, prevalence, population) {
+    prevalence = prevalence ?? 0.10;
+    population = population ?? 1000;
+    const diseased = population * prevalence;
+    const healthy = population - diseased;
+    const tp = Math.round(diseased * sens);
+    const fn = Math.round(diseased * (1 - sens));
+    const tn = Math.round(healthy * spec);
+    const fp = Math.round(healthy * (1 - spec));
+    return {
+      population, prevalence,
+      casesDetected: tp, casesMissed: fn,
+      correctlyCleared: tn, falseAlarms: fp,
+      detectionRate: tp / Math.max(1, diseased),
+      falseAlarmRate: fp / Math.max(1, healthy)
+    };
+  }
+
+  // --- 5. Results & Methods Text Generator ---
+  function generateResultsText(result, k, totalN) {
+    if (!result) return '';
+    const pct = (v, d) => (v * 100).toFixed(d ?? 1);
+    const ci = (lo, hi) => pct(lo) + '\u2013' + pct(hi);
+    const plr = result.plr ?? (result.pooledSens / (1 - result.pooledSpec));
+    const nlr = result.nlr ?? ((1 - result.pooledSens) / result.pooledSpec);
+    const dor = result.dor ?? ((result.pooledSens * result.pooledSpec) / ((1 - result.pooledSens) * (1 - result.pooledSpec)));
+    const j = youdenIndex(result.pooledSens, result.pooledSpec);
+
+    let text = `A total of ${k} studies`;
+    if (totalN) text += ` comprising ${totalN.toLocaleString()} patients`;
+    text += ` were included in the diagnostic test accuracy meta-analysis. `;
+    text += `The pooled sensitivity was ${pct(result.pooledSens)}% `;
+    text += `(95% CI: ${ci(result.sensCI[0], result.sensCI[1])}%) `;
+    text += `and pooled specificity was ${pct(result.pooledSpec)}% `;
+    text += `(95% CI: ${ci(result.specCI[0], result.specCI[1])}%). `;
+    text += `The positive likelihood ratio was ${plr.toFixed(2)} `;
+    text += `and the negative likelihood ratio was ${nlr.toFixed(3)}. `;
+    text += `The diagnostic odds ratio was ${dor.toFixed(1)}`;
+    if (result.auc) text += ` and the area under the SROC curve was ${result.auc.toFixed(3)}`;
+    text += '. ';
+    // Heterogeneity
+    if (result.I2_sens != null || result.I2_spec != null) {
+      text += `Heterogeneity was `;
+      const i2s = result.I2_sens ?? 0, i2p = result.I2_spec ?? 0;
+      const descI2 = v => v < 25 ? 'low' : v < 50 ? 'low-moderate' : v < 75 ? 'moderate-substantial' : 'considerable';
+      text += `${descI2(i2s)} for sensitivity (I\u00B2 = ${i2s.toFixed(1)}%) `;
+      text += `and ${descI2(i2p)} for specificity (I\u00B2 = ${i2p.toFixed(1)}%). `;
+    }
+    return text;
+  }
+
+  function generateMethodsText(k, method, ccMethod) {
+    method = method ?? 'bivariate';
+    ccMethod = ccMethod ?? '0.5';
+    let text = 'Diagnostic accuracy data were extracted as 2\u00D72 tables (TP, FP, FN, TN) from each study. ';
+    if (method === 'bivariate') {
+      text += 'Pooled sensitivity and specificity were estimated using the bivariate random-effects model ';
+      text += '(Reitsma et al., 2005) with DerSimonian-Laird estimation of between-study variance. ';
+    } else {
+      text += 'The hierarchical summary ROC (HSROC) model (Rutter & Gatsonis, 2001) was used to estimate ';
+      text += 'the summary ROC curve and derive pooled accuracy parameters. ';
+    }
+    if (ccMethod === '0.5') {
+      text += 'A continuity correction of 0.5 was applied to studies with zero cells. ';
+    }
+    text += 'Confidence intervals were computed using the t-distribution (df = k \u2212 2) for improved small-sample coverage. ';
+    text += 'Heterogeneity was assessed using I\u00B2 statistics computed separately for sensitivity and specificity ';
+    text += 'on the logit scale using fixed-effect inverse-variance weights. ';
+    text += 'Publication bias was evaluated using Deeks\u2019 funnel plot asymmetry test (Deeks et al., 2005). ';
+    text += 'All analyses were performed using MetaSprint DTA. ';
+    text += 'Statistical significance was set at p < 0.05 (p < 0.10 for Deeks\u2019 test, per Cochrane guidance).';
+    return text;
+  }
+
+  // =========================================================================
+  // TIER 2 FEATURES
+  // =========================================================================
+
+  // --- 6. P-Curve Analysis ---
+  // Right-skew test on p-values from individual study logDOR z-tests
+  function pCurveAnalysis(studies) {
+    const n = studies.length;
+    if (n < 5) return { error: 'Need at least 5 studies for p-curve analysis' };
+
+    const pValues = [];
+    for (const s of studies) {
+      const logDOR = (s.logitSens ?? 0) + (s.logitSpec ?? 0);
+      const varLogDOR = (s.varLogitSens ?? 0.25) + (s.varLogitSpec ?? 0.25);
+      if (varLogDOR <= 0) continue;
+      const z = logDOR / Math.sqrt(varLogDOR);
+      const p = 2 * (1 - normalCDF(Math.abs(z)));
+      if (p > 0 && p <= 1) pValues.push({ z, p, significant: p < 0.05 });
+    }
+
+    const sigP = pValues.filter(v => v.significant).map(v => v.p);
+    const nSig = sigP.length;
+    if (nSig < 3) return { error: 'Fewer than 3 significant studies; p-curve not informative', pValues };
+
+    // Right-skew test: under H0 (no effect), significant p-values are uniform(0, 0.05)
+    // Under H1 (real effect), they are right-skewed (concentrated near 0)
+    // Binomial test: count how many p < 0.025 vs p >= 0.025
+    const nBelow = sigP.filter(p => p < 0.025).length;
+    // Under null: P(p < 0.025 | p < 0.05) = 0.5
+    // Binomial p-value for right-skew
+    let binomP = 0;
+    for (let x = nBelow; x <= nSig; x++) {
+      // P(X >= nBelow) under Binomial(nSig, 0.5)
+      let coeff = 1;
+      for (let i = 0; i < x; i++) coeff *= (nSig - i) / (i + 1);
+      binomP += coeff * Math.pow(0.5, nSig);
+    }
+
+    // Flatness test (p-uniform): KS test against uniform(0, 0.05)
+    const sortedP = [...sigP].sort((a, b) => a - b);
+    let ksD = 0;
+    for (let i = 0; i < nSig; i++) {
+      const empirical = (i + 1) / nSig;
+      const theoretical = sortedP[i] / 0.05;
+      ksD = Math.max(ksD, Math.abs(empirical - theoretical));
+    }
+
+    const rightSkewed = binomP < 0.05;
+    const flat = binomP > 0.50;
+
+    return {
+      method: 'p_curve',
+      nStudies: n, nSignificant: nSig, nTotal: pValues.length,
+      nBelow025: nBelow, binomialP: binomP, ksStatistic: ksD,
+      rightSkewed, flat,
+      interpretation: rightSkewed ? 'Evidential value present (right-skewed p-curve)'
+        : flat ? 'P-curve is flat: may indicate selective reporting or no true effect'
+        : 'Inconclusive p-curve shape',
+      pValues
+    };
+  }
+
+  // --- 7. Profile Likelihood CIs ---
+  // Bisection on -2*logLR = chi2(1, alpha) for logit(sens)/logit(spec)
+  function profileLikelihoodCI(studies, confLevel) {
+    confLevel = confLevel ?? 0.95;
+    const n = studies.length;
+    if (n < 3) return null;
+    const alpha = 1 - confLevel;
+    const chiCrit = chi2Quantile(1 - alpha, 1); // chi2(1, 0.05) ≈ 3.84
+
+    // Log-likelihood for univariate random-effects on logit scale
+    const logLik = (yi, vi, mu, tau2) => {
+      let ll = 0;
+      for (let i = 0; i < yi.length; i++) {
+        const totalVar = vi[i] + tau2;
+        if (totalVar <= 0) continue;
+        ll -= 0.5 * (Math.log(2 * Math.PI * totalVar) + (yi[i] - mu) * (yi[i] - mu) / totalVar);
+      }
+      return ll;
+    };
+
+    // Profile for one dimension: find mu bounds where -2(ll(mu) - ll(muHat)) = chiCrit
+    const profileOneDim = (yi, vi) => {
+      // MLE: DL estimate
+      const w = vi.map(v => 1 / v), sumW = w.reduce((a, b) => a + b, 0);
+      const muFE = w.reduce((s, wi, i) => s + wi * yi[i], 0) / sumW;
+      const Q = w.reduce((s, wi, i) => s + wi * (yi[i] - muFE) * (yi[i] - muFE), 0);
+      const C = sumW - w.reduce((s, wi) => s + wi * wi, 0) / sumW;
+      const tau2 = C > 0 ? Math.max(0, (Q - (n - 1)) / C) : 0;
+
+      const wRE = vi.map(v => 1 / (v + tau2)), sumWRE = wRE.reduce((a, b) => a + b, 0);
+      const muHat = wRE.reduce((s, wi, i) => s + wi * yi[i], 0) / sumWRE;
+      const llMax = logLik(yi, vi, muHat, tau2);
+
+      // Bisection for lower bound
+      const findBound = (direction) => {
+        let lo = muHat, hi = muHat + direction * 10;
+        // Ensure f(hi) has crossed the threshold
+        for (let expand = 0; expand < 5; expand++) {
+          const llHi = logLik(yi, vi, hi, tau2);
+          if (-2 * (llHi - llMax) > chiCrit) break;
+          hi += direction * 5;
+        }
+        for (let i = 0; i < 60; i++) {
+          const mid = (lo + hi) / 2;
+          const llMid = logLik(yi, vi, mid, tau2);
+          const dev = -2 * (llMid - llMax);
+          if (Math.abs(dev - chiCrit) < 0.001) return mid;
+          if (dev < chiCrit) { lo = mid; } else { hi = mid; }
+        }
+        return (lo + hi) / 2;
+      };
+
+      return {
+        muHat, tau2,
+        ci: [findBound(-1), findBound(1)],
+        prob: invLogit(muHat),
+        probCI: [invLogit(findBound(-1)), invLogit(findBound(1))]
+      };
+    };
+
+    const y1 = studies.map(s => s.logitSens), v1 = studies.map(s => s.varLogitSens);
+    const y2 = studies.map(s => s.logitSpec), v2 = studies.map(s => s.varLogitSpec);
+
+    return {
+      method: 'profile_likelihood',
+      sensitivity: profileOneDim(y1, v1),
+      specificity: profileOneDim(y2, v2)
+    };
+  }
+
+  // --- 8. What-If Scenario Simulator ---
+  // Computes clinical outcomes for any sens/spec/prev/pop combination
+  function whatIfSimulator(params) {
+    const sens = Math.max(0, Math.min(1, params.sensitivity ?? 0.90));
+    const spec = Math.max(0, Math.min(1, params.specificity ?? 0.90));
+    const prev = Math.max(0.001, Math.min(0.999, params.prevalence ?? 0.10));
+    const pop = Math.max(1, params.population ?? 10000);
+
+    const diseased = pop * prev, healthy = pop - diseased;
+    const tp = diseased * sens, fn = diseased * (1 - sens);
+    const tn = healthy * spec, fp = healthy * (1 - spec);
+    const ppv = tp / Math.max(1, tp + fp), npv = tn / Math.max(1, tn + fn);
+
+    // Pre/post-test probabilities (Fagan)
+    const preOdds = prev / (1 - prev);
+    const plr = sens / (1 - spec), nlr = (1 - sens) / spec;
+    const postPosOdds = preOdds * plr, postNegOdds = preOdds * nlr;
+    const postPosProb = postPosOdds / (1 + postPosOdds);
+    const postNegProb = postNegOdds / (1 + postNegOdds);
+
+    // Clinical impact
+    const nnd = 1 / Math.max(0.001, sens + spec - 1);
+    const netBenefit = tp / pop - fp / pop * (prev / (1 - prev));
+
+    return {
+      inputs: { sensitivity: sens, specificity: spec, prevalence: prev, population: pop },
+      counts: { tp: Math.round(tp), fp: Math.round(fp), fn: Math.round(fn), tn: Math.round(tn) },
+      rates: { ppv, npv, plr, nlr, dor: (sens * spec) / ((1 - sens) * (1 - spec)), nnd },
+      fagan: { preTestProb: prev, postTestPosProb: postPosProb, postTestNegProb: postNegProb,
+               probabilityShiftPos: postPosProb - prev, probabilityShiftNeg: prev - postNegProb },
+      impact: { casesDetected: Math.round(tp), casesMissed: Math.round(fn),
+                correctlyCleared: Math.round(tn), falseAlarms: Math.round(fp),
+                netBenefit }
+    };
+  }
+
+  // --- 9. Bootstrap Bias-Corrected CIs (BCa) ---
+  // Resamples studies with replacement, re-pools, computes BCa intervals
+  function bootstrapBCa(studies, confLevel, nBoot) {
+    confLevel = confLevel ?? 0.95;
+    nBoot = nBoot ?? 1000;
+    const n = studies.length;
+    if (n < 4) return { error: 'Need at least 4 studies for bootstrap' };
+
+    const fullModel = improvedBivariatePool(studies, confLevel);
+    if (!fullModel) return { error: 'Bivariate model failed' };
+
+    // Seeded PRNG (xoshiro128**) for deterministic bootstrap
+    let s0 = 123456789, s1 = 362436069, s2 = 521288629, s3 = 88675123;
+    const xoshiro = () => {
+      const result = (s1 * 5 | 0) >>> 0;
+      const t = s1 << 9;
+      s2 ^= s0; s3 ^= s1; s1 ^= s2; s0 ^= s3;
+      s2 ^= t; s3 = (s3 << 11) | (s3 >>> 21);
+      return (result >>> 0) / 4294967296;
+    };
+
+    const bootSens = [], bootSpec = [];
+    for (let b = 0; b < nBoot; b++) {
+      const sample = [];
+      for (let i = 0; i < n; i++) sample.push(studies[Math.floor(xoshiro() * n)]);
+      const bootResult = improvedBivariatePool(sample, confLevel);
+      if (bootResult) {
+        bootSens.push(bootResult.pooledSens);
+        bootSpec.push(bootResult.pooledSpec);
+      }
+    }
+
+    if (bootSens.length < nBoot * 0.8) return { error: 'Too many bootstrap failures' };
+
+    bootSens.sort((a, b) => a - b);
+    bootSpec.sort((a, b) => a - b);
+
+    const alpha = 1 - confLevel;
+    // BCa: bias correction
+    const z0Sens = normalQuantile(bootSens.filter(v => v < fullModel.pooledSens).length / bootSens.length);
+    const z0Spec = normalQuantile(bootSpec.filter(v => v < fullModel.pooledSpec).length / bootSpec.length);
+
+    // BCa: acceleration (jackknife)
+    const jackSens = [], jackSpec = [];
+    for (let i = 0; i < n; i++) {
+      const sub = studies.filter((_, j) => j !== i);
+      const jm = improvedBivariatePool(sub, confLevel);
+      if (jm) { jackSens.push(jm.pooledSens); jackSpec.push(jm.pooledSpec); }
+    }
+    const meanJackSens = jackSens.reduce((a, b) => a + b, 0) / jackSens.length;
+    const meanJackSpec = jackSpec.reduce((a, b) => a + b, 0) / jackSpec.length;
+    const numSens = jackSens.reduce((s, v) => s + Math.pow(meanJackSens - v, 3), 0);
+    const denSens = Math.pow(jackSens.reduce((s, v) => s + Math.pow(meanJackSens - v, 2), 0), 1.5);
+    const numSpec = jackSpec.reduce((s, v) => s + Math.pow(meanJackSpec - v, 3), 0);
+    const denSpec = Math.pow(jackSpec.reduce((s, v) => s + Math.pow(meanJackSpec - v, 2), 0), 1.5);
+    const aSens = denSens > 0 ? numSens / (6 * denSens) : 0;
+    const aSpec = denSpec > 0 ? numSpec / (6 * denSpec) : 0;
+
+    const bcaQuantile = (bootArr, z0, acc, p) => {
+      const zp = normalQuantile(p);
+      const adjusted = normalCDF(z0 + (z0 + zp) / (1 - acc * (z0 + zp)));
+      const idx = Math.max(0, Math.min(bootArr.length - 1, Math.floor(adjusted * bootArr.length)));
+      return bootArr[idx];
+    };
+
+    return {
+      method: 'bootstrap_bca', nBoot, nSuccessful: bootSens.length,
+      sens: { point: fullModel.pooledSens,
+              percentileCI: [bootSens[Math.floor(alpha / 2 * bootSens.length)], bootSens[Math.floor((1 - alpha / 2) * bootSens.length)]],
+              bcaCI: [bcaQuantile(bootSens, z0Sens, aSens, alpha / 2), bcaQuantile(bootSens, z0Sens, aSens, 1 - alpha / 2)],
+              bias: bootSens.reduce((a, b) => a + b, 0) / bootSens.length - fullModel.pooledSens },
+      spec: { point: fullModel.pooledSpec,
+              percentileCI: [bootSpec[Math.floor(alpha / 2 * bootSpec.length)], bootSpec[Math.floor((1 - alpha / 2) * bootSpec.length)]],
+              bcaCI: [bcaQuantile(bootSpec, z0Spec, aSpec, alpha / 2), bcaQuantile(bootSpec, z0Spec, aSpec, 1 - alpha / 2)],
+              bias: bootSpec.reduce((a, b) => a + b, 0) / bootSpec.length - fullModel.pooledSpec }
+    };
+  }
+
+  // --- 10. LASSO Meta-Regression ---
+  // L1-penalized coordinate descent on logit-scale moderator regression
+  function lassoMetaRegression(studies, moderators, options) {
+    options = options || {};
+    const n = studies.length;
+    if (n < 5) return { error: 'Need at least 5 studies for LASSO meta-regression' };
+    if (!moderators || moderators.length === 0) return { error: 'No moderators provided' };
+
+    const lambda = options.lambda ?? 0.1;
+    const maxIter = options.maxIter ?? 200;
+    const tol = options.tol ?? 1e-6;
+    const outcome = options.outcome ?? 'logDOR'; // or 'logitSens', 'logitSpec'
+
+    // Build design matrix X (n x p) and outcome vector y
+    const p = moderators.length;
+    const X = [], y = [], w = [];
+    for (let i = 0; i < n; i++) {
+      const s = studies[i];
+      let yi, vi;
+      if (outcome === 'logitSens') {
+        yi = s.logitSens; vi = s.varLogitSens;
+      } else if (outcome === 'logitSpec') {
+        yi = s.logitSpec; vi = s.varLogitSpec;
+      } else {
+        yi = (s.logitSens ?? 0) + (s.logitSpec ?? 0); // logDOR
+        vi = (s.varLogitSens ?? 0.25) + (s.varLogitSpec ?? 0.25);
+      }
+      if (!isFinite(yi) || vi <= 0) continue;
+      const xi = moderators.map(m => {
+        const val = s[m.field] ?? s._meta?.[m.field] ?? 0;
+        return isFinite(val) ? val : 0;
+      });
+      X.push(xi); y.push(yi); w.push(1 / vi);
+    }
+
+    const nObs = y.length;
+    if (nObs < p + 2) return { error: 'More covariates than observations' };
+
+    // Standardize X (mean-center, scale by weighted SD)
+    const means = [], sds = [];
+    for (let j = 0; j < p; j++) {
+      const sumW = w.reduce((a, b) => a + b, 0);
+      const m = X.reduce((s, xi, i) => s + w[i] * xi[j], 0) / sumW;
+      const v = X.reduce((s, xi, i) => s + w[i] * (xi[j] - m) * (xi[j] - m), 0) / sumW;
+      means.push(m); sds.push(Math.sqrt(v) || 1);
+    }
+    const Xs = X.map(xi => xi.map((v, j) => (v - means[j]) / sds[j]));
+
+    // Coordinate descent with LASSO penalty
+    let beta = new Array(p).fill(0);
+    let intercept = y.reduce((s, yi, i) => s + w[i] * yi, 0) / w.reduce((a, b) => a + b, 0);
+
+    const softThreshold = (z, lam) => {
+      if (z > lam) return z - lam;
+      if (z < -lam) return z + lam;
+      return 0;
+    };
+
+    for (let iter = 0; iter < maxIter; iter++) {
+      const oldBeta = [...beta];
+      // Update intercept
+      let sumWR = 0, sumWW = 0;
+      for (let i = 0; i < nObs; i++) {
+        const pred = Xs[i].reduce((s, xij, j) => s + xij * beta[j], 0);
+        sumWR += w[i] * (y[i] - pred); sumWW += w[i];
+      }
+      intercept = sumWR / sumWW;
+
+      // Update each coefficient
+      for (let j = 0; j < p; j++) {
+        let num = 0, den = 0;
+        for (let i = 0; i < nObs; i++) {
+          const pred = intercept + Xs[i].reduce((s, xij, jj) => s + (jj !== j ? xij * beta[jj] : 0), 0);
+          const resid = y[i] - pred;
+          num += w[i] * Xs[i][j] * resid;
+          den += w[i] * Xs[i][j] * Xs[i][j];
+        }
+        beta[j] = den > 0 ? softThreshold(num / den, lambda * w.reduce((a, b) => a + b, 0) / nObs) : 0;
+      }
+
+      const maxChange = beta.reduce((m, b, j) => Math.max(m, Math.abs(b - oldBeta[j])), 0);
+      if (maxChange < tol) break;
+    }
+
+    // Transform back to original scale
+    const betaOrig = beta.map((b, j) => b / sds[j]);
+    const interceptOrig = intercept - means.reduce((s, m, j) => s + betaOrig[j] * m, 0);
+    const nonZero = beta.map((b, j) => ({ name: moderators[j].label || moderators[j].field, beta: betaOrig[j], selected: Math.abs(b) > 1e-10 }));
+
+    return {
+      method: 'lasso_meta_regression', lambda, outcome,
+      nStudies: nObs, nCovariates: p,
+      intercept: interceptOrig,
+      coefficients: nonZero,
+      nSelected: nonZero.filter(c => c.selected).length,
+      selectedNames: nonZero.filter(c => c.selected).map(c => c.name)
+    };
+  }
+
+  // =========================================================================
+  // END TIER 2 FEATURES
+  // =========================================================================
+
   // --- Main DTA Analysis Orchestrator ---
   function computeDTAAnalysis(studies, confLevel, method, ccMethod) {
     confLevel = confLevel ?? 0.95;
