@@ -5336,20 +5336,23 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       }
     }
 
-    // PPV / NPV — with CI extraction (V2 patterns)
+    // PPV / NPV — with CI extraction (V2 patterns); search primaryText first, fallback to text
     const ppvPatterns = [
       /(?:positive\s+predictive\s+value|PPV)\s*(?:was\s*|of\s*|[=:]\s*)?(\d+\.?\d*)\s*%?\s*(?:[\(\[](?:95\s*%?\s*CI\s*[,:=]?\s*)?(\d+\.?\d*)\s*[-\u2013\u2014,\s]*(?:to\s+)?(\d+\.?\d*)\s*%?[\)\]])?/i,
       /\bPPV\b\s+of\s+(\d+\.?\d*)\s*%?\s*(?:[\(\[](?:95\s*%?\s*CI\s*[,:=]?\s*)?(\d+\.?\d*)\s*[-,\s]*(\d+\.?\d*)\s*%?[\)\]])?/i
     ];
-    for (const pat of ppvPatterns) {
+    for (const searchText of [primaryText, text]) {
       if (result.ppv != null) break;
-      const ppvM = text.match(pat);
-      if (ppvM) {
-        result.ppv = parseFloat(ppvM[1]); if (result.ppv > 1) result.ppv /= 100;
-        if (ppvM[2] && ppvM[3]) {
-          result.ppvLCI = parseFloat(ppvM[2]); result.ppvUCI = parseFloat(ppvM[3]);
-          if (result.ppvLCI > 1) result.ppvLCI /= 100;
-          if (result.ppvUCI > 1) result.ppvUCI /= 100;
+      for (const pat of ppvPatterns) {
+        if (result.ppv != null) break;
+        const ppvM = searchText.match(pat);
+        if (ppvM) {
+          result.ppv = parseFloat(ppvM[1]); if (result.ppv > 1) result.ppv /= 100;
+          if (ppvM[2] && ppvM[3]) {
+            result.ppvLCI = parseFloat(ppvM[2]); result.ppvUCI = parseFloat(ppvM[3]);
+            if (result.ppvLCI > 1) result.ppvLCI /= 100;
+            if (result.ppvUCI > 1) result.ppvUCI /= 100;
+          }
         }
       }
     }
@@ -5357,15 +5360,18 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       /(?:negative\s+predictive\s+value|NPV)\s*(?:was\s*|of\s*|[=:]\s*)?(\d+\.?\d*)\s*%?\s*(?:[\(\[](?:95\s*%?\s*CI\s*[,:=]?\s*)?(\d+\.?\d*)\s*[-\u2013\u2014,\s]*(?:to\s+)?(\d+\.?\d*)\s*%?[\)\]])?/i,
       /\bNPV\b\s+of\s+(\d+\.?\d*)\s*%?\s*(?:[\(\[](?:95\s*%?\s*CI\s*[,:=]?\s*)?(\d+\.?\d*)\s*[-,\s]*(\d+\.?\d*)\s*%?[\)\]])?/i
     ];
-    for (const pat of npvPatterns) {
+    for (const searchText of [primaryText, text]) {
       if (result.npv != null) break;
-      const npvM = text.match(pat);
-      if (npvM) {
-        result.npv = parseFloat(npvM[1]); if (result.npv > 1) result.npv /= 100;
-        if (npvM[2] && npvM[3]) {
-          result.npvLCI = parseFloat(npvM[2]); result.npvUCI = parseFloat(npvM[3]);
-          if (result.npvLCI > 1) result.npvLCI /= 100;
-          if (result.npvUCI > 1) result.npvUCI /= 100;
+      for (const pat of npvPatterns) {
+        if (result.npv != null) break;
+        const npvM = searchText.match(pat);
+        if (npvM) {
+          result.npv = parseFloat(npvM[1]); if (result.npv > 1) result.npv /= 100;
+          if (npvM[2] && npvM[3]) {
+            result.npvLCI = parseFloat(npvM[2]); result.npvUCI = parseFloat(npvM[3]);
+            if (result.npvLCI > 1) result.npvLCI /= 100;
+            if (result.npvUCI > 1) result.npvUCI /= 100;
+          }
         }
       }
     }
@@ -5413,15 +5419,20 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       }
     }
 
-    // AUC / AUROC / C-statistic — with CI extraction (V2 patterns)
+    // AUC / AUROC / C-statistic / C-index — with CI extraction (V2 patterns)
+    // Note: C-statistic/C-index are prognostic model terms (Harrell's concordance), not standard
+    // DTA terminology, but numerically equivalent to AUC(ROC) for binary outcomes.
+    // Search primaryText (Results section) first, fall back to full text.
     const aucPatterns = [
       /\b(?:AUC|AUROC)\b\s*(?:was\s*|of\s*|[=:]\s*)?(\d*\.?\d+)\s*(?:[\(\[](?:95\s*%?\s*CI\s*[,:=]?\s*)?(\d*\.?\d+)\s*[-\u2013\u2014,\s]*(?:to\s+)?(\d*\.?\d+)\s*[\)\]])?/i,
       /[Cc]-(?:statistic|index)\s*(?:was\s*|of\s*|[=:]\s*)?(\d*\.?\d+)\s*(?:[\(\[](?:95\s*%?\s*CI\s*[,:=]?\s*)?(\d*\.?\d+)\s*[-\u2013\u2014,\s]*(?:to\s+)?(\d*\.?\d+)\s*[\)\]])?/i,
       /[Aa]rea\s+under\s+(?:the\s+)?(?:ROC|receiver\s+operating\s+characteristic)\s+curve\s*(?:was\s*|of\s*|[=:]\s*)?(\d*\.?\d+)\s*(?:[\(\[](?:95\s*%?\s*CI\s*[,:=]?\s*)?(\d*\.?\d+)\s*[-\u2013\u2014,\s]*(?:to\s+)?(\d*\.?\d+)\s*[\)\]])?/i
     ];
-    for (const pat of aucPatterns) {
+    for (const searchText of [primaryText, text]) {
       if (result.auc != null) break;
-      const aucM = text.match(pat);
+      for (const pat of aucPatterns) {
+        if (result.auc != null) break;
+        const aucM = searchText.match(pat);
       if (aucM) {
         result.auc = parseFloat(aucM[1]); if (result.auc > 1 && result.auc <= 100) result.auc /= 100;
         if (aucM[2] && aucM[3]) {
@@ -5429,6 +5440,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
           if (result.aucLCI > 1) result.aucLCI /= 100;
           if (result.aucUCI > 1) result.aucUCI /= 100;
         }
+      }
       }
     }
 
@@ -5561,13 +5573,23 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
 
     if (result.sensitivity == null && result.specificity == null && result.directTP == null && result.lrPlus == null) return null;
 
-    // Plausibility checks — flag but don't discard
-    if (result.sensitivity != null && (result.sensitivity < 0 || result.sensitivity > 1)) result._plausibilityWarning = 'sens-out-of-range';
-    if (result.specificity != null && (result.specificity < 0 || result.specificity > 1)) result._plausibilityWarning = 'spec-out-of-range';
+    // Plausibility checks — use _warnings array (not scalar) to capture multiple issues
+    if (result.sensitivity != null && (result.sensitivity < 0 || result.sensitivity > 1)) {
+      result._warnings = result._warnings || []; result._warnings.push('Sensitivity ' + result.sensitivity.toFixed(3) + ' outside [0, 1]');
+    }
+    if (result.specificity != null && (result.specificity < 0 || result.specificity > 1)) {
+      result._warnings = result._warnings || []; result._warnings.push('Specificity ' + result.specificity.toFixed(3) + ' outside [0, 1]');
+    }
+    if (result.auc != null && (result.auc < 0 || result.auc > 1)) {
+      result._warnings = result._warnings || []; result._warnings.push('AUC ' + result.auc.toFixed(3) + ' outside [0, 1]');
+    }
     if (result.sensitivity != null && result.specificity != null) {
-      if (result.sensitivity < 0.05 && result.specificity < 0.05) result._plausibilityWarning = 'both-near-zero';
-      if (result.sensitivity > 0.99 && result.specificity < 0.10) result._plausibilityWarning = 'extreme-imbalance';
-      if (result.specificity > 0.99 && result.sensitivity < 0.10) result._plausibilityWarning = 'extreme-imbalance';
+      if (result.sensitivity < 0.05 && result.specificity < 0.05) {
+        result._warnings = result._warnings || []; result._warnings.push('Both sens and spec near zero — likely extraction error');
+      }
+      if ((result.sensitivity > 0.99 && result.specificity < 0.10) || (result.specificity > 0.99 && result.sensitivity < 0.10)) {
+        result._warnings = result._warnings || []; result._warnings.push('Extreme imbalance between sens and spec');
+      }
     }
 
     // CI bounds ordering — swap if regex captured in reversed order
@@ -11241,6 +11263,8 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     const j = youdenIndex(sens, spec);
     const nnd = j > 0 ? 1 / j : null;
     // Delta method SE for Youden: SE_J = sqrt(SE_sens^2 + SE_spec^2)
+    // Note: assumes independence of sens/spec SEs (conservative; bivariate rho is typically
+    // negative in DTA, so true SE_J is smaller and the CI is wider than necessary)
     let nndCI = null;
     if (sensCI && specCI && j > 0) {
       const alpha = 1 - confLevel;
@@ -11523,7 +11547,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     const fullModel = improvedBivariatePool(studies, confLevel);
     if (!fullModel) return { error: 'Bivariate model failed' };
 
-    // Seeded PRNG (xoshiro128**) for deterministic bootstrap
+    // Seeded PRNG (xoshiro128-like, simplified scrambler) for deterministic bootstrap
     let s0 = 123456789, s1 = 362436069, s2 = 521288629, s3 = 88675123;
     const xoshiro = () => {
       const result = (s1 * 5 | 0) >>> 0;
