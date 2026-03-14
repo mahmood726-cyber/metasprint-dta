@@ -1947,8 +1947,12 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         </label>
       </div>
       <div id="truthCertWritebackStatus" style="font-size:0.8rem;color:var(--text-muted);margin-bottom:8px"></div>
-      <button onclick="generatePaper()" style="margin:12px 0">Generate Draft</button>
-      <button class="btn-outline" onclick="togglePRISMADTAChecklist()" style="margin:12px 0 12px 8px">PRISMA-DTA Checklist</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0">
+        <button onclick="generatePaper()">Generate Draft</button>
+        <button class="btn-outline" onclick="togglePRISMADTAChecklist()">PRISMA-DTA Checklist</button>
+        <button class="btn-outline" onclick="renderAutoMethodsResults()">Auto Methods + Results</button>
+      </div>
+      <div id="autoMethodsResultsOutput" style="display:none;margin-bottom:16px"></div>
       <div id="prismaDTAChecklistPanel" style="display:none;margin-bottom:16px"></div>
       <div id="paperOutput"></div>
     </section>
@@ -13400,13 +13404,15 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       cuEl.innerHTML = cuHtml;
     }
 
-    // NND
+    // NND with CIs (enhanced via computeNNDWithCI)
     const nndEl = document.getElementById('nndContainer');
     if (nndEl) {
-      const j = result.youdenJ;
-      const nnd = result.nnd;
+      const nndResult = computeNNDWithCI(result.pooledSens, result.pooledSpec, result.sensCI, result.specCI, confLevel);
+      const j = nndResult.youden;
+      const nnd = nndResult.nnd != null ? Math.ceil(nndResult.nnd) : null;
+      const nndCIText = nndResult.nndCI ? ' (' + Math.round(confLevel * 100) + '% CI: ' + Math.ceil(nndResult.nndCI[0]) + '\u2013' + Math.ceil(nndResult.nndCI[1]) + ')' : '';
       nndEl.innerHTML = '<h3 style="font-size:0.95rem;margin-bottom:8px">Number Needed to Diagnose (NND)</h3>' +
-        '<div style="font-size:2rem;font-weight:700;color:#10b981">' + (nnd != null ? nnd : 'N/A') + '</div>' +
+        '<div style="font-size:2rem;font-weight:700;color:#10b981">' + (nnd != null ? nnd + nndCIText : 'N/A') + '</div>' +
         '<p style="font-size:0.82rem;color:var(--text-muted)">Youden\'s J = ' + (j != null && isFinite(j) ? j.toFixed(3) : 'N/A') + '. NND = 1/J = number of patients to test to correctly diagnose one additional patient.' +
         (nnd != null && nnd <= 2 ? ' <strong>Excellent</strong>: very efficient test.' : nnd != null && nnd <= 5 ? ' <strong>Good</strong>: reasonably efficient test.' : nnd != null && nnd <= 10 ? ' <strong>Moderate</strong>: consider clinical context.' : nnd != null ? ' <strong>Poor</strong>: low discriminatory efficiency.' : '') + '</p>';
       const gradeNntRowEl = document.getElementById('gradeNntRow');
@@ -14442,13 +14448,39 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       }
     }
 
-    // Influence diagnostics (LOO summary)
+    // Influence diagnostics — Cook's D & DFBETAS table
     const influenceEl = document.getElementById('advInfluenceContainer');
-    if (influenceEl) {
-      const k = result.studyData.length;
-      let html = '<h4 style="margin-bottom:8px">Influence Diagnostics</h4>';
-      html += '<p style="font-size:0.82rem;color:var(--text-muted)">Leave-one-out analysis shows impact of removing each study. Click "Run Leave-One-Out" above for full details.</p>';
-      influenceEl.innerHTML = html;
+    if (influenceEl && result.studyData && result.studyData.length >= 4) {
+      try {
+        const inflResult = computeInfluenceDiagnostics(result.studyData, confLevel);
+        if (inflResult && !inflResult.error) {
+          let html = '<h4 style="margin-bottom:8px">Influence Diagnostics (Cook\'s D &amp; DFBETAS)</h4>';
+          html += '<table style="width:100%;font-size:0.82rem;border-collapse:collapse">';
+          html += '<thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:4px 8px">Study</th><th>DFBETA Sens</th><th>DFBETA Spec</th><th>Cook\'s D</th><th>Status</th></tr></thead><tbody>';
+          const thr = inflResult.threshold;
+          inflResult.diagnostics.forEach((d, i) => {
+            if (d.error) return;
+            const label = result.studyData[d.idx]?.authorYear || result.studyData[d.idx]?.trialId || ('Study ' + (d.idx + 1));
+            const bg = d.influential ? 'background:rgba(231,76,60,0.08);' : '';
+            html += '<tr style="border-bottom:1px solid var(--border);' + bg + '">';
+            html += '<td style="padding:3px 8px">' + escapeHtml(label) + '</td>';
+            html += '<td style="text-align:center;color:' + (Math.abs(d.dfbetaSens) > thr ? 'var(--danger)' : 'inherit') + '">' + d.dfbetaSens.toFixed(3) + '</td>';
+            html += '<td style="text-align:center;color:' + (Math.abs(d.dfbetaSpec) > thr ? 'var(--danger)' : 'inherit') + '">' + d.dfbetaSpec.toFixed(3) + '</td>';
+            html += '<td style="text-align:center">' + d.cooksD.toFixed(4) + '</td>';
+            html += '<td style="text-align:center">' + (d.influential ? '<span style="color:var(--danger);font-weight:600">Influential</span>' : 'OK') + '</td>';
+            html += '</tr>';
+          });
+          html += '</tbody></table>';
+          html += '<p style="font-size:0.78rem;color:var(--text-muted);margin-top:6px">';
+          html += '<strong>Threshold:</strong> |DFBETA| &gt; 2/\u221Ak = ' + thr.toFixed(3) + ' | ';
+          html += '<strong>Influential:</strong> ' + inflResult.nInfluential + ' of ' + inflResult.k + ' studies';
+          if (inflResult.maxCooksD != null) html += ' | <strong>Max Cook\'s D:</strong> ' + inflResult.maxCooksD.toFixed(4);
+          html += '</p>';
+          influenceEl.innerHTML = html;
+        } else {
+          influenceEl.innerHTML = '<h4>Influence Diagnostics</h4><p style="font-size:0.82rem;color:var(--text-muted)">' + (inflResult?.error || 'Not available') + '</p>';
+        }
+      } catch (e) { console.error('Influence diagnostics:', e); influenceEl.innerHTML = ''; }
     }
 
     // Publication bias
@@ -14462,6 +14494,44 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       html += '<tr><td style="padding:2px 8px">Interpretation</td><td style="padding:2px 8px">' + (dt.significant ? 'Significant asymmetry detected (p < 0.10) — possible publication bias' : 'No significant asymmetry') + '</td></tr>';
       if (dt.warning) html += '<tr><td style="padding:2px 8px" colspan="2"><em style="color:var(--warning)">' + escapeHtml(dt.warning) + '</em></td></tr>';
       html += '</table>';
+
+      // Copas Selection Model
+      if (result.studyData && result.studyData.length >= 4) {
+        try {
+          const copas = copasSelectionModel(result.studyData, result);
+          if (copas && !copas.error) {
+            html += '<h5 style="margin-top:16px;margin-bottom:6px">Copas Selection Model</h5>';
+            html += '<table style="font-size:0.82rem;border-collapse:collapse">';
+            html += '<tr><td style="padding:2px 8px">Converged</td><td style="padding:2px 8px;font-weight:600">' + (copas.converged ? 'Yes (' + copas.iterations + ' iter)' : 'No') + '</td></tr>';
+            html += '<tr><td style="padding:2px 8px">Unadjusted Sens</td><td style="padding:2px 8px">' + (copas.unadjusted.sens * 100).toFixed(1) + '%</td></tr>';
+            html += '<tr><td style="padding:2px 8px">Adjusted Sens</td><td style="padding:2px 8px;font-weight:600">' + (copas.adjusted.sens * 100).toFixed(1) + '% (' + (copas.adjusted.sensChange >= 0 ? '+' : '') + (copas.adjusted.sensChange * 100).toFixed(1) + '%)</td></tr>';
+            html += '<tr><td style="padding:2px 8px">Unadjusted Spec</td><td style="padding:2px 8px">' + (copas.unadjusted.spec * 100).toFixed(1) + '%</td></tr>';
+            html += '<tr><td style="padding:2px 8px">Adjusted Spec</td><td style="padding:2px 8px;font-weight:600">' + (copas.adjusted.spec * 100).toFixed(1) + '% (' + (copas.adjusted.specChange >= 0 ? '+' : '') + (copas.adjusted.specChange * 100).toFixed(1) + '%)</td></tr>';
+            html += '<tr><td style="padding:2px 8px">Down-weighted studies</td><td style="padding:2px 8px">' + copas.selection.downWeighted + ' of ' + copas.nStudies + '</td></tr>';
+            html += '<tr><td style="padding:2px 8px">Expected unpublished</td><td style="padding:2px 8px">' + copas.selection.expectedUnpublished + '</td></tr>';
+            html += '</table>';
+            html += '<p style="font-size:0.75rem;color:var(--text-muted);margin-top:4px">EM-based IPW selection model. Large adjustments suggest possible publication bias.</p>';
+          }
+        } catch (e) { console.error('Copas:', e); }
+      }
+
+      // P-Curve Analysis
+      if (result.studyData && result.studyData.length >= 5) {
+        try {
+          const pc = pCurveAnalysis(result.studyData);
+          if (pc && !pc.error) {
+            html += '<h5 style="margin-top:16px;margin-bottom:6px">P-Curve Analysis</h5>';
+            html += '<table style="font-size:0.82rem;border-collapse:collapse">';
+            html += '<tr><td style="padding:2px 8px">Significant studies</td><td style="padding:2px 8px">' + pc.nSignificant + ' of ' + pc.nTotal + '</td></tr>';
+            html += '<tr><td style="padding:2px 8px">p &lt; 0.025 (right skew)</td><td style="padding:2px 8px">' + pc.nBelow025 + ' of ' + pc.nSignificant + '</td></tr>';
+            html += '<tr><td style="padding:2px 8px">Binomial p-value</td><td style="padding:2px 8px;font-weight:600;color:' + (pc.rightSkewed ? 'var(--success)' : pc.flat ? 'var(--danger)' : 'inherit') + '">' + pc.binomialP.toFixed(4) + '</td></tr>';
+            html += '<tr><td style="padding:2px 8px">Interpretation</td><td style="padding:2px 8px">' + escapeHtml(pc.interpretation) + '</td></tr>';
+            html += '</table>';
+            if (pc.caveat) html += '<p style="font-size:0.72rem;color:var(--text-muted);margin-top:4px;font-style:italic">' + escapeHtml(pc.caveat) + '</p>';
+          }
+        } catch (e) { console.error('P-curve:', e); }
+      }
+
       pubBiasEl.innerHTML = html;
     }
 
@@ -14799,6 +14869,44 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     renderRhoSensitivity(result, confLevel);
     renderBootstrapCI(result, confLevel);
     runDTAMetaRegression(result, confLevel);
+  }
+
+  // --- Auto Methods + Results Text Renderer (Write tab) ---
+  function renderAutoMethodsResults() {
+    const output = document.getElementById('autoMethodsResultsOutput');
+    if (!output) return;
+    if (!lastAnalysisResult) {
+      showToast('Run analysis first (Analyze tab)', 'warning');
+      return;
+    }
+    const r = lastAnalysisResult;
+    const confLevel = parseFloat(document.getElementById('confLevelSelect')?.value) || 0.95;
+    const k = r.studyData ? r.studyData.length : 0;
+    const totalN = r.studyData ? r.studyData.reduce((s, d) => s + (d.tp ?? 0) + (d.fp ?? 0) + (d.fn ?? 0) + (d.tn ?? 0), 0) : 0;
+    const method = document.getElementById('modelSelect')?.value || 'bivariate';
+    const ccMethod = document.getElementById('continuityCorrection')?.value || '0.5';
+
+    const methodsText = generateMethodsText(k, method, ccMethod);
+    const resultsText = generateResultsText(r, k, totalN, confLevel);
+
+    let html = '<div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">';
+    html += '<div style="background:var(--bg-tertiary);padding:12px 16px;border-bottom:1px solid var(--border)"><h4 style="margin:0">Auto-Generated Methods Section</h4></div>';
+    html += '<div style="padding:16px;font-family:serif;line-height:1.8;font-size:0.92rem" id="autoMethodsDiv">';
+    html += '<p style="text-indent:2em">' + escapeHtml(methodsText) + '</p></div>';
+    html += '<div style="padding:0 16px 8px;display:flex;gap:6px">';
+    html += '<button class="btn-sm btn-info" onclick="copyToClipboard(document.getElementById(\'autoMethodsDiv\').innerText)">Copy Methods</button></div>';
+
+    html += '<div style="background:var(--bg-tertiary);padding:12px 16px;border-top:1px solid var(--border);border-bottom:1px solid var(--border)"><h4 style="margin:0">Auto-Generated Results Section</h4></div>';
+    html += '<div style="padding:16px;font-family:serif;line-height:1.8;font-size:0.92rem" id="autoResultsDiv">';
+    html += '<p style="text-indent:2em">' + escapeHtml(resultsText) + '</p></div>';
+    html += '<div style="padding:0 16px 12px;display:flex;gap:6px">';
+    html += '<button class="btn-sm btn-info" onclick="copyToClipboard(document.getElementById(\'autoResultsDiv\').innerText)">Copy Results</button>';
+    html += '<button class="btn-sm btn-outline" onclick="copyToClipboard(document.getElementById(\'autoMethodsDiv\').innerText + \'\\n\\n\' + document.getElementById(\'autoResultsDiv\').innerText)">Copy Both</button></div>';
+    html += '</div>';
+
+    output.innerHTML = html;
+    output.style.display = 'block';
+    showToast('Methods + Results sections generated', 'success');
   }
 
   // --- Decision Curve Analysis (DCA) for diagnostic tests (S3 implementation) ---
