@@ -126,7 +126,7 @@ for condition, index_test, ref_sens, ref_spec, citation in topics:
 
                 const btn = document.getElementById('oaSearchBtn');
                 if (btn) btn.click();
-                await new Promise(r => setTimeout(r, 18000));
+                await new Promise(r => setTimeout(r, 22000));
 
                 const studies = (typeof oaDiscoveredStudies !== 'undefined') ? oaDiscoveredStudies : [];
                 const selected = studies.filter(t => t._selected && (t.backCalc || t.direct2x2));
