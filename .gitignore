@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+debug_*.py
+quick_test.py
+verify_fix.py
+PLAN_*.md
+docs/superpowers/
+*.bak
+*.tmp
+node_modules/
