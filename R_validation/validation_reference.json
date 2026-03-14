@@ -1,0 +1,238 @@
+{
+  "metadata": {
+    "generated": "2026-03-14T12:28:22",
+    "r_version": "R version 4.5.2 (2025-10-31 ucrt)",
+    "mada_version": "0.5.12",
+    "metafor_version": "4.8.0"
+  },
+  "datasets": {
+    "BNP_HF": {
+      "k": 6,
+      "studies": [
+        {
+          "study": "Dao 2001",
+          "TP": 52,
+          "FP": 14,
+          "FN": 8,
+          "TN": 76
+        },
+        {
+          "study": "Morrison 2002",
+          "TP": 44,
+          "FP": 20,
+          "FN": 6,
+          "TN": 151
+        },
+        {
+          "study": "Maisel 2002",
+          "TP": 379,
+          "FP": 83,
+          "FN": 65,
+          "TN": 959
+        },
+        {
+          "study": "Mueller 2004",
+          "TP": 89,
+          "FP": 17,
+          "FN": 14,
+          "TN": 337
+        },
+        {
+          "study": "Lainchbury 2003",
+          "TP": 40,
+          "FP": 22,
+          "FN": 5,
+          "TN": 138
+        },
+        {
+          "study": "McCullough 2002",
+          "TP": 163,
+          "FP": 44,
+          "FN": 21,
+          "TN": 416
+        }
+      ],
+      "bivariate_glmm": {
+        "sensitivity": 0.868748,
+        "specificity": 0.902033,
+        "sens_ci": [0.843316, 0.890587],
+        "spec_ci": [0.867173, 0.928498],
+        "tau2_sens": 0.007342,
+        "tau2_fpr": 0.139038,
+        "rho": 1
+      },
+      "heterogeneity": {
+        "Q_sens": 1.495,
+        "I2_sens": 0,
+        "Q_spec": 19.2241,
+        "I2_spec": 73.99
+      },
+      "derived": {
+        "PLR": 8.8677,
+        "NLR": 0.1455,
+        "DOR": 60.94
+      },
+      "hsroc": {
+        "Lambda": 4.221372,
+        "AUC_phi": 0.998582,
+        "sigma2_alpha": 0.002204
+      },
+      "tolerances": {
+        "sens_spec": 0.03,
+        "ci": 0.03,
+        "tau2": 0.1,
+        "rho": 0.2,
+        "I2": 5,
+        "plr": 0.5,
+        "nlr": 0.05,
+        "dor": 5,
+        "auc": 0.02
+      }
+    },
+    "hsTroponin_AMI": {
+      "k": 5,
+      "studies": [
+        {
+          "study": "Reichlin 2009",
+          "TP": 85,
+          "FP": 62,
+          "FN": 3,
+          "TN": 568
+        },
+        {
+          "study": "Keller 2009",
+          "TP": 58,
+          "FP": 48,
+          "FN": 2,
+          "TN": 275
+        },
+        {
+          "study": "Aldous 2011",
+          "TP": 92,
+          "FP": 85,
+          "FN": 5,
+          "TN": 150
+        },
+        {
+          "study": "Body 2011",
+          "TP": 143,
+          "FP": 110,
+          "FN": 7,
+          "TN": 603
+        },
+        {
+          "study": "Freund 2012",
+          "TP": 72,
+          "FP": 55,
+          "FN": 4,
+          "TN": 286
+        }
+      ],
+      "bivariate_glmm": {
+        "sensitivity": 0.955372,
+        "specificity": 0.828629,
+        "sens_ci": [0.931697, 0.971095],
+        "spec_ci": [0.739498, 0.89173],
+        "tau2_sens": 0.014717,
+        "tau2_fpr": 0.350611,
+        "rho": -1
+      },
+      "heterogeneity": {
+        "Q_sens": 0.6389,
+        "I2_sens": 0,
+        "Q_spec": 80.804,
+        "I2_spec": 95.05
+      },
+      "derived": {
+        "PLR": 5.5749,
+        "NLR": 0.0539,
+        "DOR": 103.51
+      },
+      "hsroc": {
+        "Lambda": 4.612776,
+        "AUC_phi": 0.999446,
+        "sigma2_alpha": 0.31734
+      },
+      "tolerances": {
+        "sens_spec": 0.03,
+        "ci": 0.03,
+        "tau2": 0.1,
+        "rho": 0.2,
+        "I2": 5,
+        "plr": 0.5,
+        "nlr": 0.05,
+        "dor": 5,
+        "auc": 0.02
+      }
+    },
+    "CTCA_CAD": {
+      "k": 4,
+      "studies": [
+        {
+          "study": "Budoff 2008",
+          "TP": 196,
+          "FP": 39,
+          "FN": 4,
+          "TN": 167
+        },
+        {
+          "study": "Miller 2008",
+          "TP": 92,
+          "FP": 27,
+          "FN": 3,
+          "TN": 169
+        },
+        {
+          "study": "Meijboom 2008",
+          "TP": 211,
+          "FP": 30,
+          "FN": 9,
+          "TN": 110
+        },
+        {
+          "study": "Raff 2005",
+          "TP": 50,
+          "FP": 6,
+          "FN": 0,
+          "TN": 14
+        }
+      ],
+      "bivariate_glmm": {
+        "sensitivity": 0.966246,
+        "specificity": 0.809987,
+        "sens_ci": [0.946819, 0.978736],
+        "spec_ci": [0.759525, 0.851925],
+        "tau2_sens": 0.003299,
+        "tau2_fpr": 0.039008,
+        "rho": -0.999996
+      },
+      "heterogeneity": {
+        "Q_sens": 2.1861,
+        "I2_sens": 0,
+        "Q_spec": 5.7697,
+        "I2_spec": 48
+      },
+      "derived": {
+        "PLR": 5.0852,
+        "NLR": 0.0417,
+        "DOR": 122.03
+      },
+      "hsroc": {
+        "Lambda": 4.891538,
+        "AUC_phi": 0.999729,
+        "sigma2_alpha": 0
+      },
+      "tolerances": {
+        "sens_spec": 0.03,
+        "ci": 0.03,
+        "tau2": 0.1,
+        "rho": 0.2,
+        "I2": 5,
+        "plr": 0.5,
+        "nlr": 0.05,
+        "dor": 5,
+        "auc": 0.02
+      }
+    }
+  }
+}
