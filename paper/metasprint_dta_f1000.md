@@ -10,9 +10,9 @@
 
 **Background:** Conducting a diagnostic test accuracy (DTA) meta-analysis typically requires months of manual searching, data extraction, and statistical analysis across disconnected tools. Most primary DTA studies report sensitivity and specificity in open-access abstracts, yet to our knowledge no widely available tool automates the pipeline from database search to bivariate pooled estimates.
 
-**Methods:** MetaSprint DTA is a browser-based platform that integrates an Open-Access Discovery Pipeline with a bivariate GLMM/HSROC statistical engine. The pipeline searches ClinicalTrials.gov, Europe PMC, OpenAlex, and PubMed in parallel, extracts diagnostic accuracy metrics from abstracts using 30+ patterns with OCR and Unicode preprocessing, and back-calculates 2x2 contingency tables. Pooled sensitivity and specificity are estimated within the same session. The pipeline was validated against 70 published DTA meta-analyses across 13 clinical specialties. Statistical accuracy was cross-validated against R mada 0.5.12 and metafor 4.8.0.
+**Methods:** MetaSprint DTA is a browser-based platform that integrates an Open-Access Discovery Pipeline with a bivariate GLMM/HSROC statistical engine. The pipeline searches ClinicalTrials.gov, Europe PMC, OpenAlex, and PubMed in parallel, extracts diagnostic accuracy metrics from abstracts using 30+ patterns with OCR and Unicode preprocessing, and back-calculates 2x2 contingency tables. Pooled sensitivity and specificity are estimated within the same session. Every inclusion/exclusion decision and extracted number is transparent and traceable to source text. The pipeline was validated against 70 published DTA meta-analyses across 13 clinical specialties. Statistical accuracy was cross-validated against R mada 0.5.12 and metafor 4.8.0.
 
-**Results:** For all 70 validation topics, the automated pipeline produced pooled estimates within 15% of published meta-analysis values (70/70 PASS, 100%). Study counts ranged from k=5 to k=64 across cardiology, infectious disease, oncology, musculoskeletal, gastroenterology, emergency medicine, rheumatology, endocrinology, obstetrics, and more. The pipeline recovered comparable or greater study counts than published reviews: CT-FFR yielded k=42 (published k~30), appendicitis ultrasound k=55 (published k~31), H. pylori urea breath test k=35 (published k~20-30), and thyroid FNA k=41. R cross-validation achieved 33/33 parity for bivariate GLMM, HSROC, heterogeneity, publication bias, and derived measures. A total of 265 automated tests pass with zero failures.
+**Results:** For all 70 validation topics, the automated pipeline produced pooled estimates within 15% of published meta-analysis values (70/70 PASS, 100%). Study counts ranged from k=5 to k=64 across cardiology, infectious disease, oncology, musculoskeletal, gastroenterology, emergency medicine, rheumatology, endocrinology, obstetrics, and more. The pipeline recovered comparable or greater study counts than published reviews: CT-FFR yielded k=42 (published k~30), appendicitis ultrasound k=55 (published k~31), H. pylori urea breath test k=35 (published k~20-30), and thyroid FNA k=41. R cross-validation achieved 33/33 parity for bivariate GLMM, HSROC, heterogeneity, publication bias, and derived measures. A total of 286 automated tests pass with zero failures.
 
 **Conclusions:** Automated extraction of diagnostic accuracy data from open-access abstracts can produce pooled estimates consistent with published meta-analyses across 70 clinical topics spanning 13 specialties. MetaSprint DTA provides a complete discover-to-synthesis workflow in a single browser session, lowering the barrier to rapid DTA evidence assessments while maintaining statistical rigor validated against R.
 
@@ -43,6 +43,8 @@ The central contribution of this paper is not the statistical engine (which impl
 | Installation required | None | R + packages | Stata license | Cochrane account |
 | Programming required | None | R scripting | Stata scripting | None |
 | Cross-validated against R | 33/33 (100%) | Reference | N/A | N/A |
+| Transparent screening | 5-criteria checklist | No | No | No |
+| Extraction traceability | Source text + evidence chain | No | No | No |
 
 ## Methods
 
@@ -88,6 +90,16 @@ For specific condition-test pairs where threshold or technique heterogeneity is 
 - **Urine cytology**: conventional vs enhanced (FISH, Paris System)
 
 Flagged studies are auto-deselected from pooling but remain visible for manual inclusion.
+
+### Transparent screening and extraction traceability
+
+Every study receives a 5-criteria screening checklist: (1) index test match, (2) not a review, (3) data extracted, (4) quality gate passed, (5) no sub-indication conflict. Each criterion stores pass/fail status with a human-readable reason. Users see a screening badge (e.g., "5/5" or "3/5") in the results table and can expand each study to view the full checklist.
+
+Every extracted number is traceable to its source text. Direct extractions store the matched text and character position; derived values (e.g., sensitivity calculated from LR+ and LR-) store the derivation formula and input metrics. In the detail view, abstracts are highlighted in yellow for directly extracted values and blue for derivation source values. An evidence chain table shows each metric with its source: `Sensitivity: 89% ← "sensitivity was 89% (95% CI: 80-96%)" [Abstract]`.
+
+Demographics (age, sex, population type) are extracted from both ClinicalTrials.gov baseline characteristics and abstract text patterns.
+
+GRADE-DTA certainty and QUADAS-2 risk of bias assessments include transparent reasoning: each domain shows not just the rating but WHY it was rated that way (e.g., "I-squared > 75%, very serious inconsistency").
 
 ### Quality gating
 
@@ -187,12 +199,12 @@ Methodological note: the app uses t(k-2) CIs (wider, more conservative) where R 
 | Suite | Tests | Purpose |
 |-------|-------|---------|
 | test_oa_discovery.py | 74 | UI rendering, extraction patterns, deduplication |
-| test_advanced_methods.py | 88 | 10 advanced methods + preprocessing + UI integration |
+| test_advanced_methods.py | 109 | 10 advanced methods + preprocessing + UI + transparency |
 | test_r_validation.py | 33 | App vs R mada/metafor cross-comparison |
 | test_13_topics.py | 15 | OA Pipeline: 15 common DTA topics |
 | test_post2015_topics.py | 35 | OA Pipeline: 35 additional topics (post-2015 evidence) |
 | test_additional_20_topics.py | 20 | OA Pipeline: 20 wave-3 topics (new specialties) |
-| **Total** | **265** | **All pass (0 failures)** |
+| **Total** | **286** | **All pass (0 failures)** |
 
 ## Use Cases
 
@@ -264,7 +276,7 @@ The 70-topic validation demonstrates this: despite extracting only from abstract
 
 ## Conclusions
 
-MetaSprint DTA demonstrates that the discover-extract-analyze pipeline for DTA meta-analysis can be automated using open-access abstracts, producing pooled estimates consistent with published systematic reviews across all 70 clinical topics evaluated. The platform provides a practical tool for rapid evidence assessments, living review updates, and DTA methods education, while maintaining statistical accuracy validated against R mada and metafor with 265 automated tests and zero failures.
+MetaSprint DTA demonstrates that the discover-extract-analyze pipeline for DTA meta-analysis can be automated using open-access abstracts, producing pooled estimates consistent with published systematic reviews across all 70 clinical topics evaluated. The platform provides a practical tool for rapid evidence assessments, living review updates, and DTA methods education, while maintaining statistical accuracy validated against R mada and metafor with 286 automated tests and zero failures.
 
 ## Software Availability
 
