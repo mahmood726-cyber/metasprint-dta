@@ -3838,7 +3838,11 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       reasons.push('Overall: Some concerns (2x2 complete, verification pending)');
     } else {
       overall = 'high'; domainDefault = 'high';
-      reasons.push('Overall: High risk (' + (!has2x2 ? 'incomplete 2x2' : 'not verified, no index test') + ')');
+      const failReasons = [];
+      if (!has2x2) failReasons.push('incomplete 2x2');
+      if (!verified) failReasons.push('not verified');
+      if (!hasIndexTest) failReasons.push('no index test');
+      reasons.push('Overall: High risk (' + (failReasons.join(', ') || 'unspecified') + ')');
     }
     return { overall, domainDefault, reasons };
   }
@@ -5708,9 +5712,12 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       || text.match(new RegExp('age[d]?\\s+(\\d+\\.?\\d*)\\s*(?:' + agePM + '\\s*(\\d+\\.?\\d*))?\\s*(?:years|yr)', 'i'))
       || text.match(new RegExp('(\\d+\\.?\\d*)\\s*(?:' + agePM + '\\s*(\\d+\\.?\\d*))?\\s*years\\s+(?:of\\s+age|old)', 'i'));
     if (ageM) {
-      _demo.ageMean = parseFloat(ageM[1]);
-      if (ageM[2]) _demo.ageSD = parseFloat(ageM[2]);
-      _demo.ageType = /median/i.test(ageM[0]) ? 'median' : 'mean';
+      const _age = parseFloat(ageM[1]);
+      if (_age > 0 && _age <= 120) { // sanity: valid human age range
+        _demo.ageMean = _age;
+        if (ageM[2]) { const _sd = parseFloat(ageM[2]); if (_sd > 0 && _sd <= 50) _demo.ageSD = _sd; }
+        _demo.ageType = /median/i.test(ageM[0]) ? 'median' : 'mean';
+      }
     }
     // Sex: "X% female", "X males and Y females", "X women", "male:female ratio"
     const sexPctM = text.match(/(\d+\.?\d*)\s*%\s*(?:were\s+)?(?:female|women)/i);
@@ -6537,7 +6544,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         + ' ' + escapeHtml((t.title || '').substring(0, 100)) + '</div>';
       if (t.nctId) studyHtml += '<a class="nct-link" href="https://clinicaltrials.gov/study/' + encodeURIComponent(t.nctId) + '" target="_blank" rel="noopener">' + escapeHtml(t.nctId) + '</a> ';
       if (t.pmid) studyHtml += '<span style="font-size:0.72rem;color:var(--text-muted)">PMID:' + escapeHtml(t.pmid) + '</span> ';
-      if (t.year) studyHtml += '<span style="font-size:0.72rem;color:var(--text-muted)">(' + t.year + ')</span>';
+      if (t.year) studyHtml += '<span style="font-size:0.72rem;color:var(--text-muted)">(' + escapeHtml(String(t.year)) + ')</span>';
       tdStudy.innerHTML = studyHtml;
       tr.appendChild(tdStudy);
 
