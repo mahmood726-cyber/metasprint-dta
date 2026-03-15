@@ -5141,6 +5141,16 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     // Apply V2 text preprocessing before extraction
     text = preprocessDTAText(text);
     const result = {};
+    result._sources = {}; // Track extraction provenance for each metric
+    // Helper: record source provenance for a metric
+    const _track = (key, value, match, method) => {
+      if (!result._sources[key]) {
+        result._sources[key] = { value, sourceText: match ? match[0] : '', charStart: match ? match.index : -1, method: method || 'direct' };
+      }
+    };
+    const _trackDerived = (key, value, method, inputs, formula) => {
+      result._sources[key] = { value, method, inputs, formula };
+    };
     // Try to extract from Results section first (more reliable than full abstract)
     const resultsText = extractResultsSection(text);
 
@@ -5164,6 +5174,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         if (!isDTAFalsePositive(primaryText, sensM.index, 'sensitivity')) {
           result.sensitivity = parseFloat(sensM[1]);
           if (result.sensitivity > 1) result.sensitivity /= 100;
+          _track('sensitivity', result.sensitivity, sensM);
           if (sensM[2] && sensM[3]) {
             result.sensLCI = parseFloat(sensM[2]); result.sensUCI = parseFloat(sensM[3]);
             if (result.sensLCI > 1) result.sensLCI /= 100;
@@ -5179,6 +5190,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         if (sensM && !isDTAFalsePositive(text, sensM.index, 'sensitivity')) {
           result.sensitivity = parseFloat(sensM[1]);
           if (result.sensitivity > 1) result.sensitivity /= 100;
+          _track('sensitivity', result.sensitivity, sensM);
           if (sensM[2] && sensM[3]) {
             result.sensLCI = parseFloat(sensM[2]); result.sensUCI = parseFloat(sensM[3]);
             if (result.sensLCI > 1) result.sensLCI /= 100;
@@ -5205,6 +5217,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         if (!isDTAFalsePositive(primaryText, specM.index, 'specificity')) {
           result.specificity = parseFloat(specM[1]);
           if (result.specificity > 1) result.specificity /= 100;
+          _track('specificity', result.specificity, specM);
           if (specM[2] && specM[3]) {
             result.specLCI = parseFloat(specM[2]); result.specUCI = parseFloat(specM[3]);
             if (result.specLCI > 1) result.specLCI /= 100;
@@ -5219,6 +5232,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         if (specM && !isDTAFalsePositive(text, specM.index, 'specificity')) {
           result.specificity = parseFloat(specM[1]);
           if (result.specificity > 1) result.specificity /= 100;
+          _track('specificity', result.specificity, specM);
           if (specM[2] && specM[3]) {
             result.specLCI = parseFloat(specM[2]); result.specUCI = parseFloat(specM[3]);
             if (result.specLCI > 1) result.specLCI /= 100;
@@ -5474,6 +5488,8 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
           result.sensitivity = bestSens;
           result.specificity = bestSpec;
           result._derivedFromPPVNPV = true;
+          _trackDerived('sensitivity', bestSens, 'derived_from_ppv_npv', ['ppv', 'npv', 'prevalence'], 'Iterative grid search matching PPV+NPV at prevalence=' + (prev*100).toFixed(0) + '%');
+          _trackDerived('specificity', bestSpec, 'derived_from_ppv_npv', ['ppv', 'npv', 'prevalence'], 'Iterative grid search matching PPV+NPV');
         }
       }
     }
@@ -5544,12 +5560,12 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         // Spec = DOR*(1-Sens) / (Sens + DOR*(1-Sens))
         const s = result.sensitivity;
         const spec = result.dor * (1 - s) / (s + result.dor * (1 - s));
-        if (spec > 0 && spec < 1) { result.specificity = spec; result._derivedFromDOR = true; }
+        if (spec > 0 && spec < 1) { result.specificity = spec; result._derivedFromDOR = true; _trackDerived('specificity', spec, 'derived_from_dor', ['dor', 'sensitivity'], 'Spec = DOR*(1-Sens) / (Sens + DOR*(1-Sens))'); }
       } else if (result.specificity != null && result.sensitivity == null) {
         // Sens = DOR*(1-Spec) / (Spec + DOR*(1-Spec))
         const sp = result.specificity;
         const sens = result.dor * (1 - sp) / (sp + result.dor * (1 - sp));
-        if (sens > 0 && sens < 1) { result.sensitivity = sens; result._derivedFromDOR = true; }
+        if (sens > 0 && sens < 1) { result.sensitivity = sens; result._derivedFromDOR = true; _trackDerived('sensitivity', sens, 'derived_from_dor', ['dor', 'specificity'], 'Sens = DOR*(1-Spec) / (Spec + DOR*(1-Spec))'); }
       }
     }
 
@@ -5563,6 +5579,8 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       if (sens > 0 && sens < 1 && spec > 0 && spec < 1) {
         result.sensitivity = sens; result.specificity = spec;
         result._derivedFromLR = true;
+        _trackDerived('sensitivity', sens, 'derived_from_lr', ['lrPlus', 'lrMinus'], 'Sens = LR+ * (1 - Spec)');
+        _trackDerived('specificity', spec, 'derived_from_lr', ['lrPlus', 'lrMinus'], 'Spec = (LR+ - 1) / (LR+ - LR-)');
       }
     }
 
@@ -5650,6 +5668,14 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         result._warnings = result._warnings || []; result._warnings.push('Extreme imbalance between sens and spec');
       }
     }
+
+    // Bulk source tracking for metrics not yet tracked individually
+    if (result.ppv != null && !result._sources.ppv) result._sources.ppv = { value: result.ppv, method: 'direct', sourceText: '' };
+    if (result.npv != null && !result._sources.npv) result._sources.npv = { value: result.npv, method: 'direct', sourceText: '' };
+    if (result.auc != null && !result._sources.auc) result._sources.auc = { value: result.auc, method: 'direct', sourceText: '' };
+    if (result.lrPlus != null && !result._sources.lrPlus) result._sources.lrPlus = { value: result.lrPlus, method: 'direct', sourceText: '' };
+    if (result.lrMinus != null && !result._sources.lrMinus) result._sources.lrMinus = { value: result.lrMinus, method: 'direct', sourceText: '' };
+    if (result.dor != null && !result._sources.dor) result._sources.dor = { value: result.dor, method: 'direct', sourceText: '' };
 
     // CI bounds ordering — swap if regex captured in reversed order
     _orderCI(result, 'sensLCI', 'sensUCI');
