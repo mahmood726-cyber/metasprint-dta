@@ -6666,8 +6666,8 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       panelHtml += '</tbody></table></div>';
     }
 
-    // Evidence chain
-    const sources = metrics._sources;
+    // Evidence chain (abstractMetrics._sources has extraction provenance; ctgovMetrics won't)
+    const sources = metrics._sources || (study.abstractMetrics || {})._sources;
     if (sources && Object.keys(sources).length > 0) {
       panelHtml += '<div style="margin-top:12px"><h4 style="font-size:0.85rem;margin-bottom:4px">Evidence Chain</h4>';
       panelHtml += '<table class="oa-prov-table"><thead><tr><th scope="col">Metric</th><th scope="col">Value</th><th scope="col">Source</th></tr></thead><tbody>';
