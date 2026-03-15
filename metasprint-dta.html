@@ -1458,6 +1458,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
                     <th scope="col">TN</th>
                     <th scope="col">Method</th>
                     <th scope="col">Conf</th>
+                    <th scope="col" title="Screening checklist: 5 criteria pass/fail">Screen</th>
                   </tr>
                 </thead>
                 <tbody id="oaResultsBody"></tbody>
@@ -6336,18 +6337,49 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     }
   }
 
+  // --- Screening checklist builder ---
+  function buildScreeningChecklist(t) {
+    const data = t.backCalc || t.direct2x2;
+    const metrics = t.ctgovMetrics || t.abstractMetrics || {};
+    const cl = {};
+    cl.indexTestMatch = { pass: t._indexTestMatch === 'match',
+      reason: t._indexTestMatch === 'match' ? 'Matched index test' : t._indexTestMatch === 'partial' ? 'Partial match only' : 'No match for index test' };
+    cl.notReview = { pass: !t._isReview,
+      reason: t._isReview ? 'Systematic review or meta-analysis' : 'Primary study' };
+    const hasSens = metrics.sensitivity != null, hasSpec = metrics.specificity != null;
+    cl.dataExtracted = { pass: data != null,
+      reason: data ? 'Sens ' + (hasSens ? (metrics.sensitivity * 100).toFixed(0) + '%' : 'derived') + ', Spec ' + (hasSpec ? (metrics.specificity * 100).toFixed(0) + '%' : 'derived') + ' (' + (data?.method || '?') + ')' : 'No extractable sensitivity/specificity data' };
+    if (data) {
+      const conf = data.confidence || 'low';
+      const totalCells = (data.tp||0) + (data.fp||0) + (data.fn||0) + (data.tn||0);
+      const n = Math.max(t.enrollment||0, totalCells);
+      const minArm = Math.min((data.tp||0) + (data.fn||0), (data.fp||0) + (data.tn||0));
+      const isPrevEst = data.method === 'prevalence-est';
+      const hasMultiTestWarn = metrics._multiTestWarning;
+      const qualityOk = !hasMultiTestWarn && ((conf === 'high' || conf === 'medium') || (conf === 'low' && n >= (isPrevEst ? 50 : 30) && minArm >= 10));
+      cl.qualityGate = { pass: qualityOk || !!t._edgeRelaxed,
+        reason: qualityOk ? conf + ' confidence, N=' + n : t._edgeRelaxed ? 'Edge-relaxed (k>=2 gate)' : hasMultiTestWarn ? 'Multi-test ambiguity' : 'Low confidence, N=' + n + (isPrevEst ? ' (needs N>=50)' : ' (needs N>=30, minArm>=10)') };
+    } else {
+      cl.qualityGate = { pass: false, reason: 'No 2x2 data' };
+    }
+    cl.noConflict = { pass: !t._subIndicationConflict,
+      reason: t._subIndicationConflict ? 'Conflict: ' + t._subIndicationConflict : 'No sub-indication conflict' };
+    return cl;
+  }
+
   // --- Render OA results table ---
   function renderOAResultsTable() {
     const tbody = document.getElementById('oaResultsBody');
     tbody.innerHTML = '';
     if (!oaDiscoveredStudies.length) {
-      tbody.innerHTML = '<tr><td colspan="12" class="oa-empty">No results yet. Enter a condition and index test above.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="13" class="oa-empty">No results yet. Enter a condition and index test above.</td></tr>';
       return;
     }
 
     for (const t of oaDiscoveredStudies) {
       const data = t.direct2x2 || t.backCalc;
       const metrics = t.ctgovMetrics || t.abstractMetrics || {};
+      t._screeningChecklist = buildScreeningChecklist(t);
       const hasSens = metrics.sensitivity != null;
       const hasSpec = metrics.specificity != null;
       const rel = t._indexTestMatch || 'unknown';
@@ -6459,6 +6491,19 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       }
       tr.appendChild(tdConf);
 
+      // Screening checklist badge
+      const tdScreen = document.createElement('td');
+      tdScreen.style.textAlign = 'center';
+      const scl = t._screeningChecklist;
+      if (scl) {
+        const allCriteria = [scl.indexTestMatch, scl.notReview, scl.dataExtracted, scl.qualityGate, scl.noConflict];
+        const passCount = allCriteria.filter(c => c.pass).length;
+        const color = passCount === 5 ? 'var(--success)' : passCount >= 3 ? '#f59e0b' : 'var(--danger)';
+        const failedReasons = allCriteria.filter(c => !c.pass).map(c => c.reason).join('; ');
+        tdScreen.innerHTML = '<span style="font-size:0.72rem;font-weight:600;color:' + color + '" title="' + escapeHtml(failedReasons || 'All 5 screening criteria passed') + '">' + passCount + '/5</span>';
+      }
+      tr.appendChild(tdScreen);
+
       // Make row clickable to show detail
       tr.classList.add('oa-row-clickable');
       tr.setAttribute('tabindex', '0');
@@ -6483,29 +6528,50 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
   function highlightAbstractDTA(text, metrics) {
     if (!text || !metrics) return escapeHtml(text || '');
     let html = escapeHtml(text);
+    const sources = metrics._sources || {};
     const patterns = [];
-    // Build patterns for each extracted value to highlight
-    if (metrics.sensitivity != null) {
-      const pct = (metrics.sensitivity > 1 ? metrics.sensitivity : metrics.sensitivity * 100);
-      patterns.push({ re: new RegExp('(sensitiv\\w*\\s*(?:was\\s*|of\\s*|[=:]\\s*)?)(' + pct.toFixed(1).replace('.', '\\.') + '|' + Math.round(pct) + ')(%|\\s*%)', 'gi'), label: 'Sens' });
+    const directBg = '#fff3cd'; // yellow for direct extraction
+    const derivedSrcBg = '#b3d9ff'; // blue for derivation source values
+
+    const addDirect = (key, label, value, reBuilder) => {
+      if (value == null) return;
+      const src = sources[key];
+      // Skip highlighting if this metric was derived (no text to highlight)
+      if (src && src.method && src.method !== 'direct') return;
+      const pct = value > 1 ? value : value * 100;
+      const srcSnippet = src?.sourceText ? ' from: "' + src.sourceText.substring(0, 50) + '"' : '';
+      patterns.push({ re: reBuilder(pct), color: directBg, tooltip: 'Extracted: ' + label + ' = ' + pct.toFixed(1) + '%' + srcSnippet });
+    };
+
+    addDirect('sensitivity', 'Sens', metrics.sensitivity, pct =>
+      new RegExp('(sensitiv\\w*\\s*(?:was\\s*|of\\s*|[=:]\\s*)?)(' + pct.toFixed(1).replace('.', '\\.') + '|' + Math.round(pct) + ')(%|\\s*%)', 'gi'));
+    addDirect('specificity', 'Spec', metrics.specificity, pct =>
+      new RegExp('(specific\\w*\\s*(?:was\\s*|of\\s*|[=:]\\s*)?)(' + pct.toFixed(1).replace('.', '\\.') + '|' + Math.round(pct) + ')(%|\\s*%)', 'gi'));
+    addDirect('ppv', 'PPV', metrics.ppv, pct =>
+      new RegExp('((?:positive predictive|ppv)\\s*(?:value\\s*)?(?:was\\s*|of\\s*|[=:]\\s*)?)(' + pct.toFixed(1).replace('.', '\\.') + '|' + Math.round(pct) + ')(%|\\s*%)', 'gi'));
+    addDirect('npv', 'NPV', metrics.npv, pct =>
+      new RegExp('((?:negative predictive|npv)\\s*(?:value\\s*)?(?:was\\s*|of\\s*|[=:]\\s*)?)(' + pct.toFixed(1).replace('.', '\\.') + '|' + Math.round(pct) + ')(%|\\s*%)', 'gi'));
+
+    // Highlight LR values in blue if they were used as derivation sources
+    if (sources.sensitivity?.method === 'derived_from_lr' || sources.specificity?.method === 'derived_from_lr') {
+      if (metrics.lrPlus != null) {
+        patterns.push({ re: new RegExp('((?:lr\\s*\\+|positive\\s+likelihood)\\s*[=:]?\\s*)(' + metrics.lrPlus.toFixed(1).replace('.', '\\.') + ')', 'gi'),
+          color: derivedSrcBg, tooltip: 'Source for derived Sens/Spec: LR+ = ' + metrics.lrPlus.toFixed(2) });
+      }
+      if (metrics.lrMinus != null) {
+        patterns.push({ re: new RegExp('((?:lr\\s*[-\\u2013]|negative\\s+likelihood)\\s*[=:]?\\s*)(' + metrics.lrMinus.toFixed(2).replace('.', '\\.') + ')', 'gi'),
+          color: derivedSrcBg, tooltip: 'Source for derived Sens/Spec: LR- = ' + metrics.lrMinus.toFixed(3) });
+      }
     }
-    if (metrics.specificity != null) {
-      const pct = (metrics.specificity > 1 ? metrics.specificity : metrics.specificity * 100);
-      patterns.push({ re: new RegExp('(specific\\w*\\s*(?:was\\s*|of\\s*|[=:]\\s*)?)(' + pct.toFixed(1).replace('.', '\\.') + '|' + Math.round(pct) + ')(%|\\s*%)', 'gi'), label: 'Spec' });
-    }
-    if (metrics.ppv != null) {
-      const pct = (metrics.ppv > 1 ? metrics.ppv : metrics.ppv * 100);
-      patterns.push({ re: new RegExp('((?:positive predictive|ppv)\\s*(?:value\\s*)?(?:was\\s*|of\\s*|[=:]\\s*)?)(' + pct.toFixed(1).replace('.', '\\.') + '|' + Math.round(pct) + ')(%|\\s*%)', 'gi'), label: 'PPV' });
-    }
-    if (metrics.npv != null) {
-      const pct = (metrics.npv > 1 ? metrics.npv : metrics.npv * 100);
-      patterns.push({ re: new RegExp('((?:negative predictive|npv)\\s*(?:value\\s*)?(?:was\\s*|of\\s*|[=:]\\s*)?)(' + pct.toFixed(1).replace('.', '\\.') + '|' + Math.round(pct) + ')(%|\\s*%)', 'gi'), label: 'NPV' });
-    }
+
+    // N pattern
     if (metrics.totalN) {
-      patterns.push({ re: new RegExp('(' + metrics.totalN + ')(\\s*(?:patients|subjects|participants|individuals|cases))', 'gi'), label: 'N' });
+      patterns.push({ re: new RegExp('(' + metrics.totalN + ')(\\s*(?:patients|subjects|participants|individuals|cases))', 'gi'),
+        color: directBg, tooltip: 'Extracted: N = ' + metrics.totalN });
     }
+
     for (const p of patterns) {
-      html = html.replace(p.re, (m, ...args) => '<mark title="Extracted: ' + p.label + '">' + m + '</mark>');
+      html = html.replace(p.re, (m) => '<mark style="background:' + p.color + ';cursor:help" title="' + escapeHtml(p.tooltip) + '">' + m + '</mark>');
     }
     return html;
   }
@@ -6586,6 +6652,44 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     if (study.doi) panelHtml += '<a href="https://doi.org/' + encodeURIComponent(study.doi) + '" target="_blank" rel="noopener">DOI: ' + escapeHtml(study.doi.substring(0, 30)) + '</a>';
     if (study.oaId && /^https?:\/\//.test(study.oaId)) panelHtml += '<a href="' + escapeHtml(study.oaId) + '" target="_blank" rel="noopener">OpenAlex</a>';
     panelHtml += '</div>';
+
+    // Screening checklist
+    const cl = study._screeningChecklist;
+    if (cl) {
+      panelHtml += '<div style="margin-top:12px"><h4 style="font-size:0.85rem;margin-bottom:4px">Screening Checklist</h4>';
+      panelHtml += '<table class="oa-prov-table"><tbody>';
+      const criteria = [['Index test match', cl.indexTestMatch], ['Not a review', cl.notReview], ['Data extracted', cl.dataExtracted], ['Quality gate', cl.qualityGate], ['No sub-indication conflict', cl.noConflict]];
+      for (const [label, c] of criteria) {
+        const icon = c.pass ? '<span style="color:var(--success)">&#10003;</span>' : '<span style="color:var(--danger)">&#10007;</span>';
+        panelHtml += '<tr><td style="white-space:nowrap">' + icon + ' ' + escapeHtml(label) + '</td><td style="font-size:0.78rem">' + escapeHtml(c.reason) + '</td></tr>';
+      }
+      panelHtml += '</tbody></table></div>';
+    }
+
+    // Evidence chain
+    const sources = metrics._sources;
+    if (sources && Object.keys(sources).length > 0) {
+      panelHtml += '<div style="margin-top:12px"><h4 style="font-size:0.85rem;margin-bottom:4px">Evidence Chain</h4>';
+      panelHtml += '<table class="oa-prov-table"><thead><tr><th scope="col">Metric</th><th scope="col">Value</th><th scope="col">Source</th></tr></thead><tbody>';
+      for (const [key, src] of Object.entries(sources)) {
+        if (!src) continue;
+        const val = src.value != null ? (src.value > 1 ? src.value.toFixed(1) + '%' : (src.value * 100).toFixed(1) + '%') : '-';
+        let srcHtml = '';
+        if (src.method === 'direct' && src.sourceText) {
+          srcHtml = '<span style="color:var(--success)">&larr;</span> "' + escapeHtml(src.sourceText.substring(0, 80)) + '" <span style="color:var(--text-muted)">[Abstract]</span>';
+        } else if (src.method === 'direct') {
+          srcHtml = '<span style="color:var(--text-muted)">[Direct extraction]</span>';
+        } else if (src.method) {
+          srcHtml = '<span style="background:#b3d9ff;padding:1px 5px;border-radius:3px;font-size:0.72rem">Derived</span> ' + escapeHtml(src.formula || src.method);
+        }
+        panelHtml += '<tr><td>' + escapeHtml(key) + '</td><td>' + val + '</td><td style="font-size:0.76rem">' + srcHtml + '</td></tr>';
+      }
+      if (data) {
+        const bcLabel = data.method === 'algebraic' ? 'Algebraic (Sens+Spec+PPV+NPV+N)' : data.method === 'ci-width' ? 'CI-width estimation' : data.method === 'prevalence-est' ? 'Prevalence-based' : data.method === 'direct' ? 'Direct from abstract' : data.method;
+        panelHtml += '<tr><td>TP/FP/FN/TN</td><td>' + data.tp + '/' + data.fp + '/' + data.fn + '/' + data.tn + '</td><td style="font-size:0.76rem"><span style="color:var(--success)">&larr;</span> Back-calc: ' + escapeHtml(bcLabel) + '</td></tr>';
+      }
+      panelHtml += '</tbody></table></div>';
+    }
 
     panelHtml += '</div>'; // close right section
     panelHtml += '</div>'; // close grid
