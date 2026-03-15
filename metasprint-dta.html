@@ -3818,9 +3818,27 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     const tp = parseInt(study.tp, 10), fp = parseInt(study.fp, 10), fn = parseInt(study.fn, 10), tn = parseInt(study.tn, 10);
     const has2x2 = isValid2x2(tp, fp, fn, tn);
     const verified = String(study.verificationStatus || '') === 'verified';
-    if (verified && has2x2 && String(study.indexTest || '').trim()) return 'some';
-    if (has2x2 && (verified || String(study.verificationStatus || '') === 'needs-check')) return 'some';
-    return 'high';
+    const hasIndexTest = String(study.indexTest || '').trim();
+
+    // Build transparent reasoning
+    const reasons = [];
+    reasons.push(hasRegistryId ? 'Registry ID: yes' : 'Registry ID: no');
+    reasons.push(has2x2 ? '2x2 data: complete' : '2x2 data: incomplete');
+    reasons.push(verified ? 'Verified: yes' : 'Verified: no');
+    reasons.push(hasIndexTest ? 'Index test: specified' : 'Index test: missing');
+
+    let overall, domainDefault;
+    if (verified && has2x2 && hasIndexTest) {
+      overall = 'some'; domainDefault = 'some';
+      reasons.push('Overall: Some concerns (verified + complete 2x2 + index test)');
+    } else if (has2x2 && (verified || String(study.verificationStatus || '') === 'needs-check')) {
+      overall = 'some'; domainDefault = 'some';
+      reasons.push('Overall: Some concerns (2x2 complete, verification pending)');
+    } else {
+      overall = 'high'; domainDefault = 'high';
+      reasons.push('Overall: High risk (' + (!has2x2 ? 'incomplete 2x2' : 'not verified, no index test') + ')');
+    }
+    return { overall, domainDefault, reasons };
   }
 
   function applyProvisionalRoBAssessments() {
@@ -3834,8 +3852,10 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     for (const r of robs) {
       const study = _findStudyById(r.studyId);
       if (!study) continue;
-      const overall = _inferProvisionalOverallRoB(study);
-      const domains = overall === 'high' ? 'high' : 'some';
+      const robInference = _inferProvisionalOverallRoB(study);
+      const overall = robInference.overall;
+      const domains = robInference.domainDefault;
+      study._robReasons = robInference.reasons; // Store reasons for transparency
       ROB2_DOMAINS.forEach(d => {
         if (!String(r[d.key] || '').trim()) r[d.key] = d.key === 'overall' ? overall : domains;
       });
@@ -4582,6 +4602,52 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     if (raw.lrPlus.length) metrics.lrPlus = pickBest(raw.lrPlus).value;
     if (raw.lrMinus.length) metrics.lrMinus = pickBest(raw.lrMinus).value;
     metrics.totalN = participantN || enrollment;
+
+    // Demographics from baseline characteristics
+    const demographics = {};
+    const baseline = data?.resultsSection?.baselineCharacteristicsModule;
+    if (baseline) {
+      const measures = baseline.measures || [];
+      for (const m of measures) {
+        const title = (m.title || '').toLowerCase();
+        const ptype = m.paramType || '';
+        const classes = m.classes || [];
+        // Age
+        if (/\bage\b/.test(title) && /mean|median/i.test(ptype)) {
+          for (const cls of classes) {
+            for (const cat of (cls.categories || [])) {
+              for (const meas of (cat.measurements || [])) {
+                if (meas.value && isFinite(parseFloat(meas.value))) {
+                  demographics.ageMean = parseFloat(meas.value);
+                  demographics.ageType = /median/i.test(ptype) ? 'median' : 'mean';
+                  if (meas.spread && isFinite(parseFloat(meas.spread))) demographics.ageSD = parseFloat(meas.spread);
+                }
+              }
+            }
+          }
+        }
+        // Sex
+        if (/\bsex\b|\bgender\b/.test(title) && /count/i.test(ptype)) {
+          for (const cls of classes) {
+            const catTitle = (cls.title || '').toLowerCase();
+            for (const cat of (cls.categories || [])) {
+              const cTitle = (cat.title || catTitle).toLowerCase();
+              for (const meas of (cat.measurements || [])) {
+                const n = parseInt(meas.value);
+                if (!isFinite(n)) continue;
+                if (/female/i.test(cTitle)) demographics.nFemale = n;
+                else if (/male/i.test(cTitle) && !/female/i.test(cTitle)) demographics.nMale = n;
+              }
+            }
+          }
+        }
+      }
+      if (demographics.nMale != null || demographics.nFemale != null) {
+        const total = (demographics.nMale || 0) + (demographics.nFemale || 0);
+        if (total > 0) demographics.pctFemale = ((demographics.nFemale || 0) / total * 100).toFixed(1);
+      }
+    }
+    metrics._demographics = demographics;
 
     return { nctId, metrics, enrollment: metrics.totalN };
   }
@@ -5632,6 +5698,39 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       }
     }
 
+    // Demographics from abstract text
+    const _demo = {};
+    // Age: "mean age X years", "median age X", "age X±Y", "aged X-Y years", "X (±Y) years"
+    const agePM = '(?:[±]|\\+/?-|\\+/-)'; // matches ± or +/- or +/-
+    const ageM = text.match(new RegExp('(?:mean|median|average)\\s+age\\s*(?:was\\s*|of\\s*|[=:]\\s*)?(\\d+\\.?\\d*)\\s*(?:' + agePM + '\\s*(\\d+\\.?\\d*))?\\s*(?:years|yr)', 'i'))
+      || text.match(new RegExp('age[d]?\\s+(\\d+\\.?\\d*)\\s*(?:' + agePM + '\\s*(\\d+\\.?\\d*))?\\s*(?:years|yr)', 'i'))
+      || text.match(new RegExp('(\\d+\\.?\\d*)\\s*(?:' + agePM + '\\s*(\\d+\\.?\\d*))?\\s*years\\s+(?:of\\s+age|old)', 'i'));
+    if (ageM) {
+      _demo.ageMean = parseFloat(ageM[1]);
+      if (ageM[2]) _demo.ageSD = parseFloat(ageM[2]);
+      _demo.ageType = /median/i.test(ageM[0]) ? 'median' : 'mean';
+    }
+    // Sex: "X% female", "X males and Y females", "X women", "male:female ratio"
+    const sexPctM = text.match(/(\d+\.?\d*)\s*%\s*(?:were\s+)?(?:female|women)/i);
+    if (sexPctM) { _demo.pctFemale = parseFloat(sexPctM[1]).toFixed(1); }
+    const sexCountM = text.match(/(\d+)\s*(?:males?|men)\s+(?:and|,)\s*(\d+)\s*(?:females?|women)/i)
+      || text.match(/(\d+)\s*(?:females?|women)\s+(?:and|,)\s*(\d+)\s*(?:males?|men)/i);
+    if (sexCountM && !_demo.pctFemale) {
+      const a = parseInt(sexCountM[1]), b = parseInt(sexCountM[2]);
+      // Determine which is male/female from pattern
+      if (/female|women/.test(sexCountM[0].match(/\d+\s*(\w+)/)[1])) {
+        _demo.nFemale = a; _demo.nMale = b;
+      } else {
+        _demo.nMale = a; _demo.nFemale = b;
+      }
+      const total = _demo.nMale + _demo.nFemale;
+      if (total > 0) _demo.pctFemale = ((_demo.nFemale / total) * 100).toFixed(1);
+    }
+    // Pediatric/adult detection
+    if (/\bpediatric|children|infant|neonat/i.test(text)) _demo.population = 'pediatric';
+    else if (/\badult|elderly|older\s+adults/i.test(text)) _demo.population = 'adult';
+    if (Object.keys(_demo).length > 0) result._demographics = _demo;
+
     // TP/FP/FN/TN directly stated — handles both "TP=45" and "45 true positives"
     const tpM = text.match(/\b(?:true\s*positiv\w*|tp)\s*[=:of]*\s*(\d+)/i) || text.match(/(\d+)\s*true\s*positiv/i);
     const fpM = text.match(/\b(?:false\s*positiv\w*|fp)\s*[=:of]*\s*(\d+)/i) || text.match(/(\d+)\s*false\s*positiv/i);
@@ -6625,6 +6724,15 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     panelHtml += '<tr><td>PPV</td><td>' + fmtPct(metrics.ppv) + '</td></tr>';
     panelHtml += '<tr><td>NPV</td><td>' + fmtPct(metrics.npv) + '</td></tr>';
     panelHtml += '<tr><td>Total N</td><td>' + (metrics.totalN || study.enrollment || '-') + '</td></tr>';
+    // Demographics
+    const demo = metrics._demographics || (study.abstractMetrics || {})._demographics;
+    if (demo && Object.keys(demo).length > 0) {
+      panelHtml += '<tr><td colspan="2" style="padding-top:6px;font-weight:600;color:var(--primary)">Demographics</td></tr>';
+      if (demo.ageMean != null) panelHtml += '<tr><td>Age (' + (demo.ageType || 'mean') + ')</td><td>' + demo.ageMean.toFixed(1) + (demo.ageSD ? ' \u00B1 ' + demo.ageSD.toFixed(1) : '') + ' years</td></tr>';
+      if (demo.pctFemale != null) panelHtml += '<tr><td>Female</td><td>' + demo.pctFemale + '%' + (demo.nFemale != null ? ' (n=' + demo.nFemale + ')' : '') + '</td></tr>';
+      if (demo.nMale != null) panelHtml += '<tr><td>Male</td><td>n=' + demo.nMale + '</td></tr>';
+      if (demo.population) panelHtml += '<tr><td>Population</td><td>' + escapeHtml(demo.population) + '</td></tr>';
+    }
     panelHtml += '<tr><td>Source</td><td>' + escapeHtml(metricSource) + '</td></tr>';
 
     if (data) {
@@ -12443,7 +12551,27 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     certainty = Math.max(1, Math.min(4, certainty));
     const labels = { 4: 'HIGH', 3: 'MODERATE', 2: 'LOW', 1: 'VERY LOW' };
     const colors = { 4: '#10b981', 3: '#3b82f6', 2: '#f59e0b', 1: '#ef4444' };
-    return { certainty, label: labels[certainty], color: colors[certainty], domains };
+
+    // Transparent reasoning for each domain
+    const gradeReasons = {};
+    gradeReasons.riskOfBias = domains.robNotAssessed ? 'RoB not yet assessed (default: serious, -1)'
+      : domains.riskOfBias === -2 ? '>50% of studies high risk (-2)'
+      : domains.riskOfBias === -1 ? '>25% high risk or >50% unclear (-1)'
+      : 'Majority low/some concerns (0)';
+    gradeReasons.inconsistency = domains.inconsistency === -2 ? 'I\u00B2 > 75% (very serious, -2)'
+      : domains.inconsistency === -1 ? 'I\u00B2 > 50% (serious, -1)'
+      : 'I\u00B2 \u2264 50% (not serious, 0)';
+    gradeReasons.imprecision = domains.imprecision === -2 ? 'CI width > 0.30 and k < 5 (very serious, -2)'
+      : domains.imprecision === -1 ? 'CI width > 0.20 (serious, -1)'
+      : 'CI width \u2264 0.20 (not serious, 0)';
+    gradeReasons.publicationBias = domains.publicationBias === -1 ? 'Deeks p < 0.10 or S-value < 4 (-1)'
+      : domains.publicationBias === -2 ? 'S-value < 2 (-2)'
+      : 'No significant asymmetry (0)';
+    gradeReasons.indirectness = domains.indirectness === -2 ? '>50% high applicability concern (-2)'
+      : domains.indirectness === -1 ? '>25% high or >50% unclear applicability (-1)'
+      : 'Low applicability concern (0)';
+
+    return { certainty, label: labels[certainty], color: colors[certainty], domains, reasons: gradeReasons };
   }
 
   // --- GRADE-DTA Summary of Findings (SoF) Table ---
