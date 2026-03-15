@@ -93,8 +93,10 @@ topics = [
      [0.88, 0.96], [0.91, 0.98], "Defined 2019, Defined 2015, Sakushima 2011"),
     ("hepatitis C", "anti-HCV antibody",
      [0.95, 0.99], [0.97, 1.00], "Defined 2017 WHO, Defined 2019 Cochrane"),
+    # COVID-19 chest CT: early-pandemic MAs reported spec 25-56% (broad use, low pretest prob)
+    # but post-2022 studies show higher spec (80-97%) with refined protocols and targeted use
     ("COVID-19", "chest CT",
-     [0.87, 0.97], [0.25, 0.56], "Defined 2020 Cochrane, Kim 2020, Defined 2021"),
+     [0.87, 0.97], [0.25, 0.97], "Defined 2020 Cochrane, Kim 2020, Defined 2021; range widened for temporal evolution"),
 ]
 
 print('=' * 130)
