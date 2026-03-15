@@ -483,6 +483,84 @@ def test_ui_integration(driver):
     check('Auto: Copy buttons', r.get('autoCopy'))
 
 
+def test_transparency(driver):
+    """Test screening checklist, evidence chain, and demographics."""
+    print('\n--- Transparency Features ---')
+
+    r = driver.execute_script("""
+        const t = {};
+        // Demographics from abstract
+        const r1 = extractDTAFromAbstract("We enrolled 250 patients (mean age 65.3 +/- 12.1 years, 58% female). Sensitivity was 89%, specificity 92%.");
+        t.demoAge = r1._demographics && Math.abs(r1._demographics.ageMean - 65.3) < 0.1;
+        t.demoAgeSD = r1._demographics && Math.abs(r1._demographics.ageSD - 12.1) < 0.1;
+        t.demoPctFemale = r1._demographics && r1._demographics.pctFemale === '58.0';
+        t.demoPopPediatric = extractDTAFromAbstract("A pediatric cohort of 100 children. Sensitivity 85%, specificity 90%.")._demographics?.population === 'pediatric';
+
+        // Source tracking
+        const r2 = extractDTAFromAbstract("Sensitivity was 89% (95% CI: 80-96%) and specificity was 92%.");
+        t.hasSources = r2._sources != null;
+        t.sensSrcText = r2._sources?.sensitivity?.sourceText?.includes('89%');
+        t.sensSrcMethod = r2._sources?.sensitivity?.method === 'direct';
+        t.specSrcMethod = r2._sources?.specificity?.method === 'direct';
+
+        // Derived source tracking
+        const r3 = extractDTAFromAbstract("LR+ was 8.5 and LR- was 0.12.");
+        t.derivedSens = r3._sources?.sensitivity?.method === 'derived_from_lr';
+        t.derivedFormula = r3._sources?.sensitivity?.formula?.includes('LR+');
+
+        // Screening checklist
+        t.checklistFn = typeof buildScreeningChecklist === 'function';
+        const mockStudy = {_indexTestMatch: 'match', _isReview: false, backCalc: {tp:50,fp:10,fn:5,tn:100,method:'algebraic',confidence:'high'}, ctgovMetrics: {sensitivity:0.9,specificity:0.9}};
+        const cl = buildScreeningChecklist(mockStudy);
+        t.clPassAll = cl && [cl.indexTestMatch,cl.notReview,cl.dataExtracted,cl.qualityGate,cl.noConflict].every(c => c.pass);
+        t.clHasReasons = cl && cl.dataExtracted.reason.includes('Sens');
+
+        // Review excluded
+        const mockReview = {_indexTestMatch: 'match', _isReview: true};
+        const cl2 = buildScreeningChecklist(mockReview);
+        t.clReviewFails = cl2 && !cl2.notReview.pass;
+        t.clReviewReason = cl2 && cl2.notReview.reason.includes('review');
+
+        // RoB transparency
+        const robR = _inferProvisionalOverallRoB({tp:'52',fp:'14',fn:'8',tn:'76',indexTest:'BNP'});
+        t.robReturnsReasons = robR.reasons && robR.reasons.length >= 4;
+        t.robOverall = robR.overall === 'some' || robR.overall === 'high';
+
+        // GRADE transparency
+        const prepared = prepareDTAStudyData([{tp:52,fp:14,fn:8,tn:76},{tp:44,fp:20,fn:6,tn:151},{tp:379,fp:83,fn:65,tn:959},{tp:89,fp:17,fn:14,tn:337}], '0.5');
+        const biv = improvedBivariatePool(prepared, 0.95);
+        const grade = computeGRADE(biv, prepared);
+        t.gradeHasReasons = grade?.reasons != null;
+        t.gradeRobReason = grade?.reasons?.riskOfBias?.length > 5;
+        t.gradeInconReason = grade?.reasons?.inconsistency?.length > 5;
+        t.gradeLabel = grade?.label != null;
+
+        return t;
+    """)
+
+    check('Demographics: age mean', r.get('demoAge'))
+    check('Demographics: age SD', r.get('demoAgeSD'))
+    check('Demographics: % female', r.get('demoPctFemale'))
+    check('Demographics: pediatric detection', r.get('demoPopPediatric'))
+    check('Sources: _sources populated', r.get('hasSources'))
+    check('Sources: sens source text', r.get('sensSrcText'))
+    check('Sources: sens method=direct', r.get('sensSrcMethod'))
+    check('Sources: spec method=direct', r.get('specSrcMethod'))
+    check('Sources: derived from LR', r.get('derivedSens'))
+    check('Sources: derived formula', r.get('derivedFormula'))
+    check('Checklist: function exists', r.get('checklistFn'))
+    check('Checklist: all pass for good study', r.get('clPassAll'))
+    check('Checklist: has reasons', r.get('clHasReasons'))
+    check('Checklist: review fails notReview', r.get('clReviewFails'))
+    check('Checklist: review reason text', r.get('clReviewReason'))
+    check('RoB: returns reasons array', r.get('robReturnsReasons'))
+    check('RoB: overall is some or high', r.get('robOverall'))
+    check('GRADE: has reasons object', r.get('gradeHasReasons'))
+    check('GRADE: RoB reason text', r.get('gradeRobReason'))
+    check('GRADE: inconsistency reason', r.get('gradeInconReason'))
+    check('GRADE: has label', r.get('gradeLabel'))
+
+
 def main():
     global passed, failed
 
@@ -505,6 +583,7 @@ def main():
         test_bootstrap(driver)
         test_lasso(driver)
         test_ui_integration(driver)
+        test_transparency(driver)
     finally:
         driver.quit()
 

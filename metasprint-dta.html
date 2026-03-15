@@ -3649,7 +3649,9 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         const cls = j === 'Low' ? 'low' : j === 'Unclear' ? 'some' : j === 'High' ? 'high' : 'empty';
         return '<td style="background:var(--bg)"><span class="rob-dot ' + cls + '" title="Applicability: ' + escapeHtml(j || 'Not assessed') + '"></span></td>';
       }).join('');
-      return '<tr><td tabindex="0" role="button" style="text-align:left;cursor:pointer;font-weight:500" onclick="openRoBEntry(\'' + escapeJSString(r.studyId) + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();openRoBEntry(\'' + escapeJSString(r.studyId) + '\')}">' + escapeHtml(r.authorYear || r.studyId) + ' &#9998;</td>' + robCells + appCells + '</tr>';
+      const study = _findStudyById(r.studyId);
+      const robReasonsTooltip = study?._robReasons ? escapeHtml(study._robReasons.join('; ')) : '';
+      return '<tr><td tabindex="0" role="button" style="text-align:left;cursor:pointer;font-weight:500" title="' + robReasonsTooltip + '" onclick="openRoBEntry(\'' + escapeJSString(r.studyId) + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();openRoBEntry(\'' + escapeJSString(r.studyId) + '\')}">' + escapeHtml(r.authorYear || r.studyId) + ' &#9998;</td>' + robCells + appCells + '</tr>';
     }).join('');
     let html = '<table class="rob-summary-table"><thead><tr><th style="text-align:left">Study</th>' + robHeaders + appHeaders + '</tr></thead><tbody>' + rows + '</tbody></table>';
 
@@ -13907,19 +13909,15 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
           '</div>';
         gradeHtml += '<div style="display:inline-block;background:' + grade.color + ';color:#fff;padding:4px 12px;border-radius:var(--radius);font-weight:700;font-size:1.1rem;margin-bottom:8px">' + escapeHtml(grade.label) + '</div>';
         gradeHtml += '<table style="width:100%;font-size:0.82rem;border-collapse:collapse;margin-top:6px">';
-        gradeHtml += '<tr style="border-bottom:2px solid var(--border)"><th style="padding:4px 8px;text-align:left">Domain</th><th style="padding:4px 8px;text-align:center">Rating</th></tr>';
+        gradeHtml += '<tr style="border-bottom:2px solid var(--border)"><th style="padding:4px 8px;text-align:left">Domain</th><th style="padding:4px 8px;text-align:center">Rating</th><th style="padding:4px 8px;text-align:left">Reasoning</th></tr>';
         for (const [key, label] of Object.entries(domainLabels)) {
           const val = grade.domains[key] ?? 0;
           const ratingText = val === 0 ? 'No concern' : val === -1 ? 'Serious' : 'Very serious';
           const ratingColor = val === 0 ? 'var(--success)' : val === -1 ? 'var(--warning)' : '#ef4444';
-          let domainNote = '';
-          if (grade.domains.robNotAssessed && key === 'riskOfBias') {
-            domainNote = ' <em style="color:var(--text-muted)">(not yet assessed)</em>';
-          } else if (key === 'riskOfBias' && !grade.domains.robNotAssessed) {
-            domainNote = ' <em style="color:var(--text-muted)">(from QUADAS-2)</em>';
-          }
-          gradeHtml += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px">' + label + domainNote + '</td>' +
-            '<td style="padding:4px 8px;text-align:center;color:' + ratingColor + ';font-weight:600">' + ratingText + '</td></tr>';
+          const reason = grade.reasons?.[key] || '';
+          gradeHtml += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px">' + escapeHtml(label) + '</td>' +
+            '<td style="padding:4px 8px;text-align:center;color:' + ratingColor + ';font-weight:600">' + ratingText + '</td>' +
+            '<td style="padding:4px 8px;font-size:0.78rem;color:var(--text-muted)">' + escapeHtml(reason) + '</td></tr>';
         }
         gradeHtml += '</table>';
         gradeContainer.innerHTML = gradeHtml;
