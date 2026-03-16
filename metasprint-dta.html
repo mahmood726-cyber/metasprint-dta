@@ -1840,7 +1840,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         </select>
         <label for="methodSelect" style="font-size:0.8rem;color:var(--text-muted)">Model:</label>
         <select id="methodSelect" style="padding:4px 8px;font-size:0.82rem;border:1px solid var(--border);border-radius:var(--radius)">
-          <option value="bivariate" selected>Bivariate GLMM (Reitsma 2005)</option>
+          <option value="bivariate" selected>Bivariate REML (Reitsma 2005)</option>
           <option value="hsroc">HSROC (Rutter-Gatsonis 2001)</option>
           <option value="univariate">Univariate RE (DL + HKSJ)</option>
         </select>
@@ -5915,7 +5915,10 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       if (pdRes.status === 'rejected') { console.warn('PubMed direct search failed:', pdRes.reason); apiWarnings.push('PubMed Direct'); }
 
       let statusMsg = 'CT.gov: ' + ctTrials.length + ' | PubMed: ' + (pmTrials.length - pdTrials.length) + '+' + pdTrials.length + ' | OpenAlex: ' + oaTrials.length + ' \u2014 deduplicating...';
-      if (apiWarnings.length) statusMsg += ' \u26A0 ' + apiWarnings.join(', ') + ' failed';
+      if (apiWarnings.length) {
+        statusMsg += ' \u26A0 ' + apiWarnings.join(', ') + ' failed';
+        showToast(apiWarnings.join(', ') + ' unavailable \u2014 results from remaining sources only', 'warning');
+      }
       setStatus(statusMsg);
 
       // 2. Deduplicate
@@ -11001,8 +11004,13 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     const Q2 = data.reduce((s, d, i) => s + w2[i] * Math.pow(d.y2 - mu2_fe, 2), 0);
     const C1 = sumW1 - w1.reduce((s, w) => s + w * w, 0) / sumW1;
     const C2 = sumW2 - w2.reduce((s, w) => s + w * w, 0) / sumW2;
-    const tau2_1 = C1 > DENOMINATOR_GUARD ? Math.max(0, (Q1 - (n - 1)) / C1) : 0;
-    const tau2_2 = C2 > DENOMINATOR_GUARD ? Math.max(0, (Q2 - (n - 1)) / C2) : 0;
+    const tau2_1_DL = C1 > DENOMINATOR_GUARD ? Math.max(0, (Q1 - (n - 1)) / C1) : 0;
+    const tau2_2_DL = C2 > DENOMINATOR_GUARD ? Math.max(0, (Q2 - (n - 1)) / C2) : 0;
+    // REML estimation (Viechtbauer 2005) — more accurate than DL, Cochrane default since 2025
+    const remlData1 = data.map(d => ({ yi: d.y1, vi: d.v1 }));
+    const remlData2 = data.map(d => ({ yi: d.y2, vi: d.v2 }));
+    const tau2_1 = n >= 3 ? estimateREML(remlData1) : tau2_1_DL;
+    const tau2_2 = n >= 3 ? estimateREML(remlData2) : tau2_2_DL;
     const w1_re = data.map(d => 1 / (d.v1 + tau2_1)), w2_re = data.map(d => 1 / (d.v2 + tau2_2));
     const sumW1_re = w1_re.reduce((a, b) => a + b, 0), sumW2_re = w2_re.reduce((a, b) => a + b, 0);
     const mu1 = data.reduce((s, d, i) => s + d.y1 * w1_re[i], 0) / sumW1_re;
@@ -11065,7 +11073,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       mu1, mu2, seMu1, seMu2, covMu12: cov12,
       tau2_sens: tau2_1, tau2_spec: tau2_2,
       heterogeneity: { Q_sens: Q1, Q_spec: Q2, I2_sens, I2_spec, I2_sens_CI: (I2_sens_obj.I2_lo != null ? [I2_sens_obj.I2_lo, I2_sens_obj.I2_hi] : null), I2_spec_CI: (I2_spec_obj.I2_lo != null ? [I2_spec_obj.I2_lo, I2_spec_obj.I2_hi] : null), pQ_sens, pQ_spec, tau2_sens: tau2_1, tau2_spec: tau2_2 },
-      rho, k: n, critValue, ciMethod: n >= SAMPLE_SIZE_T_THRESHOLD ? 'z-normal' : 'HKSJ-t', method: 'Bivariate DL (Reitsma-type)',
+      rho, k: n, critValue, ciMethod: n >= SAMPLE_SIZE_T_THRESHOLD ? 'z-normal' : 'HKSJ-t', method: n >= 3 ? 'Bivariate REML (Reitsma-type)' : 'Bivariate DL (Reitsma-type)',
       studyData: studies.map((s, i) => ({ ...s, wSens: w1_re[i], wSpec: w2_re[i], weightPctSens: (w1_re[i] / sumW1_re * 100).toFixed(1), weightPctSpec: (w2_re[i] / sumW2_re * 100).toFixed(1) }))
     };
   }
@@ -12071,7 +12079,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         mu1: biv.mu1, mu2: biv.mu2, seMu1: biv.seMu1, seMu2: biv.seMu2, covMu12: biv.covMu12,
         tau2_sens: biv.tau2_sens, tau2_spec: biv.tau2_spec,
         heterogeneity: biv.heterogeneity, rho: biv.rho, k: biv.k,
-        critValue: biv.critValue, ciMethod: biv.ciMethod, method: 'Bivariate GLMM',
+        critValue: biv.critValue, ciMethod: biv.ciMethod, method: biv.method ?? 'Bivariate GLMM',
         studyData: biv.studyData ?? prepared
       };
     }

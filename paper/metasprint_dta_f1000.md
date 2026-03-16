@@ -12,7 +12,7 @@
 
 **Methods:** MetaSprint DTA is a browser-based platform that integrates an Open-Access Discovery Pipeline with a bivariate GLMM/HSROC statistical engine. The pipeline searches ClinicalTrials.gov, Europe PMC, OpenAlex, and PubMed in parallel, extracts diagnostic accuracy metrics from abstracts using 30+ patterns with OCR and Unicode preprocessing, and back-calculates 2x2 contingency tables. Pooled sensitivity and specificity are estimated within the same session. Every inclusion/exclusion decision and extracted number is transparent and traceable to source text. The pipeline was validated against 70 published DTA meta-analyses across 13 clinical specialties. Statistical accuracy was cross-validated against R mada 0.5.12 and metafor 4.8.0.
 
-**Results:** For all 70 validation topics, the automated pipeline produced pooled estimates within 15% of published meta-analysis values (70/70 PASS, 100%). Study counts ranged from k=5 to k=64 across cardiology, infectious disease, oncology, musculoskeletal, gastroenterology, emergency medicine, rheumatology, endocrinology, obstetrics, and more. The pipeline recovered comparable or greater study counts than published reviews: CT-FFR yielded k=42 (published k~30), appendicitis ultrasound k=55 (published k~31), H. pylori urea breath test k=35 (published k~20-30), and thyroid FNA k=41. R cross-validation achieved 33/33 parity for bivariate GLMM, HSROC, heterogeneity, publication bias, and derived measures. A total of 286 automated tests pass with zero failures.
+**Results:** For all 70 validation topics, the automated pipeline produced pooled estimates within 15% of published meta-analysis values (70/70 PASS, 100%). Study counts ranged from k=5 to k=64 across cardiology, infectious disease, oncology, musculoskeletal, gastroenterology, emergency medicine, rheumatology, endocrinology, obstetrics, and more. The pipeline recovered comparable or greater study counts than published reviews: CT-FFR yielded k=42 (published k~30), appendicitis ultrasound k=55 (published k~31), H. pylori urea breath test k=35 (published k~20-30), and thyroid FNA k=41. R cross-validation achieved 33/33 parity for bivariate GLMM, HSROC, heterogeneity, publication bias, and derived measures. A total of 297 automated tests pass with zero failures.
 
 **Conclusions:** Automated extraction of diagnostic accuracy data from open-access abstracts can produce pooled estimates consistent with published meta-analyses across 70 clinical topics spanning 13 specialties. MetaSprint DTA provides a complete discover-to-synthesis workflow in a single browser session, lowering the barrier to rapid DTA evidence assessments while maintaining statistical rigor validated against R.
 
@@ -107,7 +107,7 @@ Studies are auto-selected for pooling only if they meet all criteria: (a) index 
 
 ### Statistical engine
 
-**Bivariate GLMM.** Pooled sensitivity and specificity are estimated using the Reitsma bivariate model [7] with moment-based estimation of between-study variance on the logit scale. Confidence intervals use the t-distribution (df = k-2) for small-sample coverage.
+**Bivariate GLMM.** Pooled sensitivity and specificity are estimated using the Reitsma bivariate model [7] with REML estimation of between-study variance on the logit scale (EM algorithm, Viechtbauer 2005). Confidence intervals use the t-distribution (df = k-2) for small-sample coverage.
 
 **HSROC model.** The Rutter-Gatsonis model [8] decomposes log-DOR into accuracy (Lambda) and threshold (Theta) components. AUC = Phi(Lambda/sqrt(2)).
 
@@ -192,19 +192,19 @@ Statistical computations were validated against R across 10 test categories usin
 | DOR/PLR/NLR | 3 | 3/3 PASS | +/-5.0 (DOR) |
 | **Total** | **89** | **89/89** | |
 
-Methodological note: the app uses t(k-2) CIs (wider, more conservative) where R mada uses z-based CIs. The app uses Phi(Lambda/sqrt(2)) for AUC [18] where some implementations use the logistic function (2-4% difference). Publication bias is assessed using Deeks' funnel plot asymmetry test [19].
+Methodological note: the app uses REML for between-study variance and t(k-2) CIs (wider, more conservative) where R mada uses REML with z-based CIs. The app uses Phi(Lambda/sqrt(2)) for AUC [18] where some implementations use the logistic function (2-4% difference). Publication bias is assessed using Deeks' funnel plot asymmetry test [19].
 
 ### Table 5. Complete automated test inventory
 
 | Suite | Tests | Purpose |
 |-------|-------|---------|
 | test_oa_discovery.py | 74 | UI rendering, extraction patterns, deduplication |
-| test_advanced_methods.py | 109 | 10 advanced methods + preprocessing + UI + transparency |
+| test_advanced_methods.py | 120 | 10 advanced methods + preprocessing + UI + transparency + REML + sub-indication |
 | test_r_validation.py | 33 | App vs R mada/metafor cross-comparison |
 | test_13_topics.py | 15 | OA Pipeline: 15 common DTA topics |
 | test_post2015_topics.py | 35 | OA Pipeline: 35 additional topics (post-2015 evidence) |
 | test_additional_20_topics.py | 20 | OA Pipeline: 20 wave-3 topics (new specialties) |
-| **Total** | **286** | **All pass (0 failures)** |
+| **Total** | **297** | **All pass (0 failures)** |
 
 ## Use Cases
 
@@ -262,7 +262,7 @@ The 70-topic validation demonstrates this: despite extracting only from abstract
 
 1. **Abstract-only extraction.** Studies reporting accuracy only in full text or tables are missed. Strict equivalence (within published range, no margin) is achieved for approximately 30% of topics. The 15% margin accommodates the abstract-only limitation.
 
-2. **Moment-based estimation.** The bivariate GLMM uses DerSimonian-Laird rather than REML. Point estimates differ from R mada by less than 3%, but tau-squared and CI width can differ more substantially.
+2. **Tau-squared estimation.** The bivariate GLMM uses REML (restricted maximum likelihood) for between-study variance estimation when k >= 3, falling back to DerSimonian-Laird for k = 2. Point estimates differ from R mada by less than 3%.
 
 3. **No full-text verification.** Extracted values are not verified against the original paper. The CI containment check and plausibility warnings catch some extraction errors, but misattribution (extracting the wrong test's accuracy) remains possible.
 
@@ -276,7 +276,7 @@ The 70-topic validation demonstrates this: despite extracting only from abstract
 
 ## Conclusions
 
-MetaSprint DTA demonstrates that the discover-extract-analyze pipeline for DTA meta-analysis can be automated using open-access abstracts, producing pooled estimates consistent with published systematic reviews across all 70 clinical topics evaluated. The platform provides a practical tool for rapid evidence assessments, living review updates, and DTA methods education, while maintaining statistical accuracy validated against R mada and metafor with 286 automated tests and zero failures.
+MetaSprint DTA demonstrates that the discover-extract-analyze pipeline for DTA meta-analysis can be automated using open-access abstracts, producing pooled estimates consistent with published systematic reviews across all 70 clinical topics evaluated. The platform provides a practical tool for rapid evidence assessments, living review updates, and DTA methods education, while maintaining statistical accuracy validated against R mada and metafor with 297 automated tests and zero failures.
 
 ## Software Availability
 

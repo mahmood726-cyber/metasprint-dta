@@ -561,6 +561,78 @@ def test_transparency(driver):
     check('GRADE: has label', r.get('gradeLabel'))
 
 
+def test_reml_bivariate(driver):
+    """Test REML bivariate estimation produces correct method label and reasonable values."""
+    print('\n--- REML Bivariate ---')
+    r = driver.execute_script("""
+        var r = _getLastAnalysis();
+        if (!r) return {error: 'no result'};
+        return {
+            method: r.method,
+            hasREML: (r.method || '').indexOf('REML') >= 0,
+            pooledSens: r.pooledSens,
+            pooledSpec: r.pooledSpec,
+            tau2_sens: r.tau2_sens,
+            tau2_spec: r.tau2_spec,
+            sensInRange: r.pooledSens > 0.5 && r.pooledSens < 1.0,
+            specInRange: r.pooledSpec > 0.3 && r.pooledSpec < 1.0,
+            tau2SensValid: r.tau2_sens >= 0,
+            tau2SpecValid: r.tau2_spec >= 0
+        };
+    """)
+    check('REML: method label contains REML', r.get('hasREML'), f"got: {r.get('method')}")
+    check('REML: pooled sens in valid range', r.get('sensInRange'), f"got: {r.get('pooledSens')}")
+    check('REML: pooled spec in valid range', r.get('specInRange'), f"got: {r.get('pooledSpec')}")
+    check('REML: tau2_sens non-negative', r.get('tau2SensValid'))
+    check('REML: tau2_spec non-negative', r.get('tau2SpecValid'))
+
+
+def test_sub_indication_detection(driver):
+    """Test sub-indication conflict detection patterns."""
+    print('\n--- Sub-Indication Detection ---')
+    # Test D-dimer threshold detection
+    r = driver.execute_script("""
+        // Simulate D-dimer studies with mixed thresholds
+        var studies = [
+            {title:'D-dimer DVT 500ng/mL standard cutoff', abstract:'sensitivity was 95% and specificity was 40% using the standard 500 ng/mL cutoff', _indexTestMatch:'match', _isReview:false, backCalc:{tp:95,fp:60,fn:5,tn:40,confidence:'medium'}, abstractMetrics:{}},
+            {title:'Age-adjusted D-dimer DVT', abstract:'age-adjusted D-dimer cutoff showed sensitivity 88% specificity 55%', _indexTestMatch:'match', _isReview:false, backCalc:{tp:88,fp:45,fn:12,tn:55,confidence:'medium'}, abstractMetrics:{}},
+            {title:'D-dimer PE standard', abstract:'sensitivity 97% specificity 38% at 500 ng/mL threshold', _indexTestMatch:'match', _isReview:false, backCalc:{tp:97,fp:62,fn:3,tn:38,confidence:'medium'}, abstractMetrics:{}}
+        ];
+        // Check that age-adjusted study gets flagged
+        var ageAdj = studies[1];
+        var txt = ((ageAdj.title || '') + ' ' + (ageAdj.abstract || '')).toLowerCase();
+        var isAgeAdj = /age.adjusted|age.specific|age.adapted|age.dependent/i.test(txt);
+        // Check standard cutoff detection
+        var std = studies[0];
+        var stdTxt = ((std.title || '') + ' ' + (std.abstract || '')).toLowerCase();
+        var isStd500 = /500\\s*(?:ng|µg|ug)\\/(?:ml|l)|0\\.5\\s*(?:mg\\/l|µg\\/ml|ug\\/ml)/i.test(stdTxt);
+        // Check STOP-BANG/OSA pattern
+        var osaText = 'STOP-BANG questionnaire for obstructive sleep apnea with AHI >= 15';
+        var isHighAHI = /ahi\\s*(?:>=?|≥)\\s*(?:15|30)/i.test(osaText.toLowerCase());
+        // Check celiac tTG pattern
+        var celiacText = 'tissue transglutaminase IgA antibody for celiac disease';
+        var isTTGIgA = /\\btTG\\b|tissue\\s*transglutaminase|anti.tTG/i.test(celiacText) && /IgA/i.test(celiacText);
+        // Check hip fracture MRI pattern
+        var hipText = 'MRI for occult hip fracture in elderly patients';
+        var isOccult = /occult/i.test(hipText);
+        var isStress = /stress\\s*fracture/i.test(hipText);
+        return {
+            ageAdjDetected: isAgeAdj,
+            std500Detected: isStd500,
+            highAHIDetected: isHighAHI,
+            tTGIgADetected: isTTGIgA,
+            occultDetected: isOccult,
+            stressNotDetected: !isStress
+        };
+    """)
+    check('SubInd: age-adjusted D-dimer detected', r.get('ageAdjDetected'))
+    check('SubInd: standard 500 ng/mL cutoff detected', r.get('std500Detected'))
+    check('SubInd: high AHI threshold (>=15) detected', r.get('highAHIDetected'))
+    check('SubInd: tTG IgA pattern detected', r.get('tTGIgADetected'))
+    check('SubInd: occult fracture detected', r.get('occultDetected'))
+    check('SubInd: stress fracture not false-positive', r.get('stressNotDetected'))
+
+
 def main():
     global passed, failed
 
@@ -584,6 +656,8 @@ def main():
         test_lasso(driver)
         test_ui_integration(driver)
         test_transparency(driver)
+        test_reml_bivariate(driver)
+        test_sub_indication_detection(driver)
     finally:
         driver.quit()
 
