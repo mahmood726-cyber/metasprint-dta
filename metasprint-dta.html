@@ -1206,7 +1206,6 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     </section>
   </div>
 
-  <a href="#phase-dashboard" class="skip-link" style="position:absolute;top:-40px;left:0;background:var(--primary);color:#fff;padding:8px 16px;z-index:10000;font-size:0.9rem;transition:top 0.2s" onfocus="this.style.top='0'" onblur="this.style.top='-40px'">Skip to main content</a>
   <header class="app-header">
     <h1>MetaSprint DTA <span style="color:var(--text-muted);font-weight:400;font-size:0.85rem">Cardio Diagnostics</span></h1>
     <div class="header-actions">
@@ -1240,7 +1239,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     <button class="tab" id="tab-insights" data-phase="insights" role="tab" aria-selected="false" aria-controls="phase-insights">Insights</button>
   </nav>
 
-  <main id="mainContent">
+  <main id="mainContent" tabindex="-1">
     <h1 class="sr-only">MetaSprint DTA — Diagnostic Test Accuracy Meta-Analysis</h1>
     <!-- Sprint Dashboard -->
     <section id="phase-dashboard" class="phase active" role="tabpanel" aria-labelledby="tab-dashboard" tabindex="-1">
@@ -3391,7 +3390,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       const key = d + '-' + i;
       const checked = completed[key];
       return '<div class="checklist-item ' + (checked ? 'checked' : '') + '" onclick="toggleSprintTask(\'' + key + '\')" tabindex="0" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click()}" role="checkbox" aria-checked="' + (!!checked) + '">' +
-        '<div class="check-box"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg></div>' +
+        '<div class="check-box"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg></div>' +
         '<div class="checklist-title">' + escapeHtml(task) + '</div></div>';
     }).join('');
   }
@@ -3450,7 +3449,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       items.forEach(item => {
         const isChecked = checked[item.id];
         html += '<div class="checklist-item ' + (isChecked ? 'checked' : '') + '" onclick="toggleDoDItem(\'' + item.id + '\')" tabindex="0" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();this.click()}" role="checkbox" aria-checked="' + (!!isChecked) + '">' +
-          '<div class="check-box"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg></div>' +
+          '<div class="check-box"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg></div>' +
           '<div class="checklist-title">' + escapeHtml(item.text) + '</div></div>';
       });
 
@@ -12575,7 +12574,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       if (domains.imprecision === 0) return 'CI width \u2264 0.20 (not serious, 0)';
       const sensWide = sensCIWidth > (domains.imprecision === -2 ? 0.30 : 0.20);
       const specWide = specCIWidth > (domains.imprecision === -2 ? 0.30 : 0.20);
-      const which = sensWide && specWide ? 'Sens CI ' + sensCIWidth.toFixed(2) + ' + Spec CI ' + specCIWidth.toFixed(2)
+      const which = sensWide && specWide ? 'Sens CI width ' + sensCIWidth.toFixed(2) + ' + Spec CI width ' + specCIWidth.toFixed(2)
         : sensWide ? 'Sens CI width ' + sensCIWidth.toFixed(2) : 'Spec CI width ' + specCIWidth.toFixed(2);
       return domains.imprecision === -2 ? which + ' > 0.30 and k < 5 (very serious, -2)'
         : which + ' > 0.20 (serious, -1)';

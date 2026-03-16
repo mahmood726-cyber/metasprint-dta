@@ -15,7 +15,7 @@ Reference: McInnes MDF, Moher D, Thombs BD, et al. Preferred Reporting Items for
 | 4 | Clinical role of index test | State the clinical role of the index test, including its intended use and clinical application | Yes | Introduction, para 3 (line 30); Table 1 (lines 34-47) |
 | 5 | Objectives | Provide an explicit statement of questions being addressed, with PIRD elements | Yes | Introduction, para 2 (lines 25-26) |
 | **METHODS** | | | | |
-| 6 | Protocol and registration | Indicate if a review protocol exists, and where it can be accessed | N/A | Not a traditional SR; automated platform paper |
+| 6 | Protocol and registration | Indicate if a review protocol exists, and where it can be accessed | N/A | Methods/software paper; no pre-registered SR protocol. The 70-topic validation protocol is described in Methods (lines 51-106) |
 | 7 | Eligibility criteria | Specify study characteristics and report characteristics used as criteria for eligibility | Yes | Methods: Quality gating (lines 104-106) |
 | 8 | Information sources | Describe all information sources searched and date of last search | Yes | Methods: OA Discovery Pipeline (lines 51-60) |
 | 9 | Search | Present full search strategy for at least one database | Yes | Methods: 4-source parallel search (lines 55-59) |
