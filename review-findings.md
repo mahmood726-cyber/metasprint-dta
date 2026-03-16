@@ -47,7 +47,7 @@
 - [x] Accessibility pass: role="img" + aria-label on 10 SVG charts, skip-to-content link
 - [x] Duplicate skip-link removed (was added at line 1209, original at line 1084)
 
-## Test Results: 183/183 PASS (74 unit + 109 advanced)
+## Test Results: 194/194 PASS (74 unit + 120 advanced)
 ## Topic Validation: 70/70 PASS
 ## R Validation: 33/33 PASS
 ## Core DTA Tests: 389/389 PASS
