@@ -1206,6 +1206,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     </section>
   </div>
 
+  <a href="#phase-dashboard" class="skip-link" style="position:absolute;top:-40px;left:0;background:var(--primary);color:#fff;padding:8px 16px;z-index:10000;font-size:0.9rem;transition:top 0.2s" onfocus="this.style.top='0'" onblur="this.style.top='-40px'">Skip to main content</a>
   <header class="app-header">
     <h1>MetaSprint DTA <span style="color:var(--text-muted);font-weight:400;font-size:0.85rem">Cardio Diagnostics</span></h1>
     <div class="header-actions">
@@ -10725,7 +10726,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     const maxD = Math.max(...cd.map(c => c.d), diagnostics.threshold);
     const w = 450, margin = 120, barW = w - margin - 60;
     const h = 50 + cd.length * 25;
-    let svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" style="max-width:100%;background:var(--bg-secondary,#f8f9fa);border-radius:8px">';
+    let svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="Cook\'s distance influence plot" style="max-width:100%;background:var(--bg-secondary,#f8f9fa);border-radius:8px">';
     svg += '<text x="' + (w / 2) + '" y="20" text-anchor="middle" fill="currentColor" font-weight="600" font-size="13">Cook\'s Distance</text>';
     const threshX = margin + (diagnostics.threshold / maxD) * barW;
     svg += '<line x1="' + threshX + '" y1="35" x2="' + threshX + '" y2="' + (h - 10) + '" stroke="var(--danger)" stroke-width="2" stroke-dasharray="5,3"/>';
@@ -10778,7 +10779,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     const xMin = Math.min(...logDORs) - 1, xMax = Math.max(...logDORs) + 1;
     const yMin = 0, yMax = Math.max(...precision) * 1.1;
     const sx = v => ml + (v - xMin) / (xMax - xMin) * pw, sy = v => mt + ph - (v - yMin) / (yMax - yMin) * ph;
-    let svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" style="max-width:100%;background:var(--bg-secondary,#f8f9fa);border-radius:8px">';
+    let svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="Contour-enhanced funnel plot of log-DOR vs precision" style="max-width:100%;background:var(--bg-secondary,#f8f9fa);border-radius:8px">';
     // Contour bands (widest first) — use IV-weighted RE mean, not arithmetic mean
     const tau2DOR = (() => { const wi = viDOR.map(v => 1/v); const sw = wi.reduce((a,b)=>a+b,0); const wm = validS.reduce((s,st,i)=>s+wi[i]*st.logDOR,0)/sw; const Q = validS.reduce((s,st,i)=>s+wi[i]*(st.logDOR-wm)**2,0); const C = sw - wi.reduce((s,w)=>s+w*w,0)/sw; return C > DENOMINATOR_GUARD ? Math.max(0,(Q-(validS.length-1))/C) : 0; })();
     const wiRE = viDOR.map(v => 1/(v + tau2DOR)); const swRE = wiRE.reduce((a,b)=>a+b,0);
@@ -12570,9 +12571,15 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     gradeReasons.inconsistency = domains.inconsistency === -2 ? 'I\u00B2 > 75% (very serious, -2)'
       : domains.inconsistency === -1 ? 'I\u00B2 > 50% (serious, -1)'
       : 'I\u00B2 \u2264 50% (not serious, 0)';
-    gradeReasons.imprecision = domains.imprecision === -2 ? 'CI width > 0.30 and k < 5 (very serious, -2)'
-      : domains.imprecision === -1 ? 'CI width > 0.20 (serious, -1)'
-      : 'CI width \u2264 0.20 (not serious, 0)';
+    gradeReasons.imprecision = (() => {
+      if (domains.imprecision === 0) return 'CI width \u2264 0.20 (not serious, 0)';
+      const sensWide = sensCIWidth > (domains.imprecision === -2 ? 0.30 : 0.20);
+      const specWide = specCIWidth > (domains.imprecision === -2 ? 0.30 : 0.20);
+      const which = sensWide && specWide ? 'Sens CI ' + sensCIWidth.toFixed(2) + ' + Spec CI ' + specCIWidth.toFixed(2)
+        : sensWide ? 'Sens CI width ' + sensCIWidth.toFixed(2) : 'Spec CI width ' + specCIWidth.toFixed(2);
+      return domains.imprecision === -2 ? which + ' > 0.30 and k < 5 (very serious, -2)'
+        : which + ' > 0.20 (serious, -1)';
+    })();
     gradeReasons.publicationBias = domains.publicationBias === -1 ? 'Deeks p < 0.10 or S-value < 4 (-1)'
       : domains.publicationBias === -2 ? 'S-value < 2 (-2)'
       : 'No significant asymmetry (0)';
@@ -14153,7 +14160,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     const maxN = Math.max(...studies.map(s => s.n ?? 1));
     const rScale = n => 3 + 9 * Math.sqrt((n ?? 1) / maxN);
 
-    let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="max-width:520px;width:100%;font-family:sans-serif" xmlns="http://www.w3.org/2000/svg">';
+    let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Crosshairs plot of sensitivity vs 1-specificity" style="max-width:520px;width:100%;font-family:sans-serif" xmlns="http://www.w3.org/2000/svg">';
 
     // Grid lines
     for (let g = 0; g <= 1; g += 0.2) {
@@ -14231,7 +14238,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     const maxN = Math.max(...studies.map(s => s.n ?? 1));
     const rScale = n => 3 + 9 * Math.sqrt((n ?? 1) / maxN);
 
-    let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="max-width:480px;width:100%;font-family:sans-serif" xmlns="http://www.w3.org/2000/svg">';
+    let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Labbe plot of specificity vs sensitivity" style="max-width:480px;width:100%;font-family:sans-serif" xmlns="http://www.w3.org/2000/svg">';
 
     // Grid
     for (let g = 0; g <= 1; g += 0.2) {
@@ -14342,7 +14349,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     const sx = v => pad.left + (v / xMax) * pw;
     const sy = v => pad.top + (1 - (v + yAbsMax) / (2 * yAbsMax)) * ph;
 
-    let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="max-width:520px;width:100%;font-family:sans-serif" xmlns="http://www.w3.org/2000/svg">';
+    let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Galbraith radial plot of standardized log-DOR" style="max-width:520px;width:100%;font-family:sans-serif" xmlns="http://www.w3.org/2000/svg">';
 
     // Grid
     svg += '<line x1="' + pad.left + '" y1="' + sy(0) + '" x2="' + (W - pad.right) + '" y2="' + sy(0) + '" stroke="var(--border)" stroke-width="0.5"/>';
@@ -14756,7 +14763,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       return 4 + 14 * (w - minW) / (maxW - minW);
     }
 
-    let svg = '<svg viewBox="0 0 ' + svgW + ' ' + svgH + '" style="width:100%;max-width:' + svgW + 'px;height:auto;font-family:system-ui,sans-serif;overflow:visible">';
+    let svg = '<svg viewBox="0 0 ' + svgW + ' ' + svgH + '" role="img" aria-label="Meta-regression bubble plot" style="width:100%;max-width:' + svgW + 'px;height:auto;font-family:system-ui,sans-serif;overflow:visible">';
 
     // Axes
     svg += '<line x1="' + margin.left + '" y1="' + (margin.top + plotH) + '" x2="' + (margin.left + plotW) + '" y2="' + (margin.top + plotH) + '" stroke="var(--border)" stroke-width="1"/>';
@@ -15029,7 +15036,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         const logMax = Math.log(Math.max(...allVals) * 1.3);
         const toX = v => labelW + (Math.log(Math.max(0.01, v)) - logMin) / (logMax - logMin) * plotW;
         const nullX = toX(1);
-        let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="max-width:' + W + 'px;width:100%;font-family:sans-serif" xmlns="http://www.w3.org/2000/svg">';
+        let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + escapeHtml(title) + ' forest plot" style="max-width:' + W + 'px;width:100%;font-family:sans-serif" xmlns="http://www.w3.org/2000/svg">';
         // Title
         svg += '<text x="' + (W / 2) + '" y="14" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">' + title + '</text>';
         // Null line
@@ -15392,7 +15399,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     const sx = v => pad.left + v * pw;
     const sy = v => pad.top + (1 - (v - nbMin) / (nbMax - nbMin)) * ph;
 
-    let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="max-width:520px;width:100%;font-family:sans-serif" xmlns="http://www.w3.org/2000/svg">';
+    let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Decision curve analysis plot" style="max-width:520px;width:100%;font-family:sans-serif" xmlns="http://www.w3.org/2000/svg">';
     const prevPct = Math.round(prev * 100);
     svg += '<text x="' + (W / 2) + '" y="16" text-anchor="middle" font-size="12" font-weight="600" fill="var(--text)">Decision Curve Analysis (prevalence=' + prevPct + '%)</text>';
     // Axes
@@ -15610,7 +15617,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       return pad.top + (1 - (l10 - lMin) / (lMax - lMin)) * axH;
     };
 
-    let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="max-width:400px;width:100%;font-family:sans-serif" xmlns="http://www.w3.org/2000/svg">';
+    let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Fagan nomogram for pre-test to post-test probability" style="max-width:400px;width:100%;font-family:sans-serif" xmlns="http://www.w3.org/2000/svg">';
 
     // Three vertical axis lines
     svg += '<line x1="' + xLeft + '" y1="' + pad.top + '" x2="' + xLeft + '" y2="' + (H - pad.bottom) + '" stroke="var(--text)" stroke-width="1.5"/>';
@@ -20376,7 +20383,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     const sx = v => pad.left + ((v - xMin) / xRange) * plotW;
     const sy = v => pad.top + plotH - ((v - (yMin - yPad)) / (yRange + 2 * yPad)) * plotH;
 
-    let svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" xmlns="http://www.w3.org/2000/svg" style="max-width:340px;width:100%;font-family:var(--font)">';
+    let svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="Evidence trajectory chart with confidence band" xmlns="http://www.w3.org/2000/svg" style="max-width:340px;width:100%;font-family:var(--font)">';
 
     // CI band
     let bandPoints = trajectory.map(t => sx(t.year) + ',' + sy(t.ci_hi)).join(' ') + ' ' +
@@ -23629,7 +23636,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     });
     if (!hasData) return '';
 
-    var svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" xmlns="http://www.w3.org/2000/svg" style="max-width:500px;width:100%;font-family:Arial,sans-serif">';
+    var svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="QUADAS-2 risk of bias summary bar chart" xmlns="http://www.w3.org/2000/svg" style="max-width:500px;width:100%;font-family:Arial,sans-serif">';
     svg += '<text x="' + (w / 2) + '" y="14" text-anchor="middle" font-size="11" font-weight="bold" fill="var(--text)">QUADAS-2 Risk of Bias Summary</text>';
 
     domains.forEach(function(d, di) {
@@ -28210,6 +28217,33 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
           console.warn('Al-Burhan IDB restore skipped:', err.message ?? err);
         }
       }, 500);
+      // Demo mode: ?demo=bnp auto-loads a topic and runs OA Discovery
+      try {
+        const demoParam = new URLSearchParams(window.location.search).get('demo');
+        if (demoParam) {
+          const demoTopics = {
+            'bnp': 'heart failure|BNP',
+            'troponin': 'acute coronary syndrome|troponin',
+            'ctffr': 'coronary artery disease|CT-FFR',
+            'tb': 'tuberculosis|Xpert MTB/RIF',
+            'appendicitis': 'appendicitis|ultrasound',
+            'covid': 'COVID-19|rapid antigen test',
+            'strep': 'streptococcal pharyngitis|rapid antigen test',
+            'thyroid': 'thyroid cancer|fine needle aspiration'
+          };
+          const topicVal = demoTopics[demoParam.toLowerCase()];
+          if (topicVal) {
+            setTimeout(() => {
+              switchPhase('discover');
+              const oaBody = document.getElementById('oaBody');
+              if (oaBody && !oaBody.classList.contains('open')) toggleOAPanel();
+              applyOAExampleTopic(topicVal);
+              showToast('Demo mode: loading ' + topicVal.replace('|', ' + '), 'info');
+              setTimeout(() => runOADiscovery(), 300);
+            }, 800);
+          }
+        }
+      } catch (e) { console.warn('Demo param ignored:', e); }
       // Show onboarding on first run
       if (!safeGetStorage('msa-dta-onboarded', null)) showOnboarding();
     } catch (err) {
