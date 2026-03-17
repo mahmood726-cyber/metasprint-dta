@@ -280,7 +280,7 @@ MetaSprint DTA demonstrates that the discover-extract-analyze pipeline for DTA m
 
 ## Software Availability
 
-- Source code: [REPOSITORY_URL_PLACEHOLDER]
+- Source code: https://github.com/mahmood726-cyber/metasprint-dta
 - Archived version: [ZENODO_DOI_PLACEHOLDER]
 - License: MIT
 - Version: March 2026

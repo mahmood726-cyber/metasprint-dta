@@ -4,9 +4,9 @@ Browser-based diagnostic test accuracy meta-analysis with automated open-access 
 
 ## Features
 
-- **Bivariate GLMM** (Reitsma et al. 2005) and **HSROC** (Rutter & Gatsonis 2001) models
+- **Bivariate REML** (Reitsma et al. 2005, REML tau-squared) and **HSROC** (Rutter & Gatsonis 2001) models
 - **OA Discovery Pipeline** — searches CT.gov, Europe PMC, OpenAlex, and PubMed in parallel; extracts sensitivity/specificity from abstracts; back-calculates 2x2 tables
-- **50-topic validation** against published DTA meta-analyses (100% pass rate)
+- **70-topic validation** against published DTA meta-analyses (100% pass rate across 13 specialties)
 - **R cross-validation** — 33/33 parity with R mada 0.5.12 + metafor 4.8.0
 - **10 advanced methods**: Cook's D/DFBETAS, Copas selection model, P-curve, profile likelihood CIs, bootstrap BCa, LASSO meta-regression, what-if simulator, NND with CIs
 - **Auto-generated text**: Methods and Results sections ready for manuscripts
@@ -14,6 +14,16 @@ Browser-based diagnostic test accuracy meta-analysis with automated open-access 
 - Forest plots, SROC curves, Deeks' funnel, DCA, Fagan nomogram
 - QUADAS-2 risk of bias, GRADE-DTA, PRISMA-DTA checklist
 - Dark/light mode, full keyboard accessibility
+
+## Live Demo
+
+**Try it now:** [https://mahmood726-cyber.github.io/metasprint-dta/](https://mahmood726-cyber.github.io/metasprint-dta/)
+
+Quick demo links (auto-load a validated topic):
+- [Heart failure + BNP](https://mahmood726-cyber.github.io/metasprint-dta/metasprint-dta.html?demo=bnp)
+- [Tuberculosis + Xpert MTB/RIF](https://mahmood726-cyber.github.io/metasprint-dta/metasprint-dta.html?demo=tb)
+- [Appendicitis + Ultrasound](https://mahmood726-cyber.github.io/metasprint-dta/metasprint-dta.html?demo=appendicitis)
+- [COVID-19 + Rapid antigen test](https://mahmood726-cyber.github.io/metasprint-dta/metasprint-dta.html?demo=covid)
 
 ## Quick Start
 
@@ -85,7 +95,7 @@ MIT License. See [LICENSE](LICENSE).
 
 ## Repository
 
-[REPOSITORY_URL_PLACEHOLDER]
+https://github.com/mahmood726-cyber/metasprint-dta
 
 ## Zenodo DOI
 
