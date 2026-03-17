@@ -256,7 +256,7 @@ def test_text_generators(driver):
         // Methods text
         const mt = generateMethodsText(6, "bivariate", "0.5");
         t.mtHasReitsma = mt.includes("Reitsma");
-        t.mtMomentBased = mt.includes("moment-based");
+        t.mtREML = mt.includes("REML") || mt.includes("restricted maximum likelihood");
         t.mtNoDL = !mt.includes("DerSimonian-Laird");
         t.mtHasDeeks = mt.includes("Deeks");
 
@@ -271,7 +271,7 @@ def test_text_generators(driver):
     check('Results: no 95% when confLevel=0.90', r.get('rtNo95'))
     check('Results: null CI safe', r.get('nullSafe'))
     check('Methods: cites Reitsma', r.get('mtHasReitsma'))
-    check('Methods: says moment-based', r.get('mtMomentBased'))
+    check('Methods: mentions REML', r.get('mtREML'))
     check('Methods: no DerSimonian-Laird', r.get('mtNoDL'))
     check('Methods: cites Deeks', r.get('mtHasDeeks'))
 

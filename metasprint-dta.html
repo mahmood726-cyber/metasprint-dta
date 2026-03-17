@@ -1897,6 +1897,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         <button class="btn-outline" onclick="exportQUADAS2CSV()">QUADAS-2 CSV</button>
         <button class="btn-outline" onclick="exportGRADEProfile('html')">GRADE Profile HTML</button>
         <button class="btn-outline" onclick="exportGRADEProfile('csv')">GRADE Profile CSV</button>
+        <button class="btn-success" onclick="downloadFullReport()">Download Full Report</button>
       </div>
       <div id="clinicalUtilityContainer" style="margin-top:20px"></div>
       <div id="looContainer" style="margin-top:20px"></div>
@@ -1972,6 +1973,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
         <button onclick="generatePaper()">Generate Draft</button>
         <button class="btn-outline" onclick="togglePRISMADTAChecklist()">PRISMA-DTA Checklist</button>
         <button class="btn-outline" onclick="renderAutoMethodsResults()">Auto Methods + Results</button>
+        <button class="btn-success" onclick="downloadFullReport()">Download Full Report</button>
       </div>
       <div id="autoMethodsResultsOutput" style="display:none;margin-bottom:16px"></div>
       <div id="prismaDTAChecklistPanel" style="display:none;margin-bottom:16px"></div>
@@ -11653,7 +11655,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     let text = 'Diagnostic accuracy data were extracted as 2\u00D72 tables (TP, FP, FN, TN) from each study. ';
     if (method === 'bivariate') {
       text += 'Pooled sensitivity and specificity were estimated using the bivariate random-effects model ';
-      text += '(Reitsma et al., 2005) with moment-based estimation of between-study variance. ';
+      text += '(Reitsma et al., 2005) with restricted maximum likelihood (REML) estimation of between-study variance (Viechtbauer, 2005). ';
     } else {
       text += 'The hierarchical summary ROC (HSROC) model (Rutter & Gatsonis, 2001) was used to estimate ';
       text += 'the summary ROC curve and derive pooled accuracy parameters. ';
@@ -15377,6 +15379,96 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     output.innerHTML = html;
     output.style.display = 'block';
     showToast('Methods + Results sections generated', 'success');
+  }
+
+  // --- Download Full Report (standalone HTML) ---
+  function downloadFullReport() {
+    const r = lastAnalysisResult;
+    if (!r) { showToast('Run analysis first (Analyze tab)', 'warning'); return; }
+    const confLevel = parseFloat(document.getElementById('confLevelSelect')?.value) || 0.95;
+    const confPct = Math.round(confLevel * 100);
+    const k = r.studyData ? r.studyData.length : 0;
+    const totalN = r.studyData ? r.studyData.reduce((s, d) => s + (d.tp ?? 0) + (d.fp ?? 0) + (d.fn ?? 0) + (d.tn ?? 0), 0) : 0;
+    const method = document.getElementById('methodSelect')?.value || 'bivariate';
+    const methodsText = generateMethodsText(k, method, '0.5');
+    const resultsText = generateResultsText(r, k, totalN, confLevel);
+    // Collect SVG plots
+    const srocSvg = document.getElementById('srocPlotContainer')?.innerHTML || '';
+    const forestSensSvg = document.getElementById('forestSensContainer')?.innerHTML || '';
+    const forestSpecSvg = document.getElementById('forestSpecContainer')?.innerHTML || '';
+    const funnelSvg = document.getElementById('advFunnelContainer')?.innerHTML || '';
+    // GRADE table
+    const gradeSummary = document.getElementById('analysisSummary')?.innerHTML || '';
+    // QUADAS-2 bar chart
+    const quadas2 = document.getElementById('robBarChartContainer')?.innerHTML || '';
+    // Study data table
+    let studyTable = '<table style="border-collapse:collapse;width:100%;font-size:0.85rem"><thead><tr>' +
+      '<th style="border:1px solid #ccc;padding:4px 8px;background:#f0f0f0">Study</th>' +
+      '<th style="border:1px solid #ccc;padding:4px 8px;background:#f0f0f0">TP</th>' +
+      '<th style="border:1px solid #ccc;padding:4px 8px;background:#f0f0f0">FP</th>' +
+      '<th style="border:1px solid #ccc;padding:4px 8px;background:#f0f0f0">FN</th>' +
+      '<th style="border:1px solid #ccc;padding:4px 8px;background:#f0f0f0">TN</th>' +
+      '<th style="border:1px solid #ccc;padding:4px 8px;background:#f0f0f0">Sens</th>' +
+      '<th style="border:1px solid #ccc;padding:4px 8px;background:#f0f0f0">Spec</th>' +
+      '</tr></thead><tbody>';
+    (r.studyData || []).forEach(s => {
+      const sens = s.tp / Math.max(1, s.tp + s.fn), spec = s.tn / Math.max(1, s.tn + s.fp);
+      studyTable += '<tr>' +
+        '<td style="border:1px solid #ccc;padding:4px 8px">' + escapeHtml(s.authorYear || s.id || '') + '</td>' +
+        '<td style="border:1px solid #ccc;padding:4px 8px;text-align:right">' + (s.tp ?? '') + '</td>' +
+        '<td style="border:1px solid #ccc;padding:4px 8px;text-align:right">' + (s.fp ?? '') + '</td>' +
+        '<td style="border:1px solid #ccc;padding:4px 8px;text-align:right">' + (s.fn ?? '') + '</td>' +
+        '<td style="border:1px solid #ccc;padding:4px 8px;text-align:right">' + (s.tn ?? '') + '</td>' +
+        '<td style="border:1px solid #ccc;padding:4px 8px;text-align:right">' + (sens * 100).toFixed(1) + '%</td>' +
+        '<td style="border:1px solid #ccc;padding:4px 8px;text-align:right">' + (spec * 100).toFixed(1) + '%</td></tr>';
+    });
+    studyTable += '</tbody></table>';
+    // Build report
+    const now = new Date().toISOString().slice(0, 10);
+    const project = document.getElementById('projectSelect')?.selectedOptions?.[0]?.text || 'Untitled';
+    let html = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">' +
+      '<title>DTA Meta-Analysis Report \u2014 ' + escapeHtml(project) + '</title>' +
+      '<style>body{font-family:Georgia,serif;max-width:900px;margin:40px auto;padding:0 20px;line-height:1.7;color:#1e293b}' +
+      'h1{color:#2563eb;border-bottom:2px solid #2563eb;padding-bottom:8px}h2{color:#1d4ed8;margin-top:32px}' +
+      'h3{color:#374151;margin-top:24px}.meta{color:#6b7280;font-size:0.85rem;margin-bottom:24px}' +
+      '.stat-box{background:#f0f4ff;border:1px solid #bfdbfe;border-radius:8px;padding:16px;margin:16px 0}' +
+      '.plot{margin:20px 0;text-align:center}svg{max-width:100%}table{margin:16px 0}' +
+      '@media print{body{margin:0;padding:10px}h1{font-size:1.3rem}.plot svg{max-height:400px}}</style></head><body>';
+    html += '<h1>DTA Meta-Analysis Report</h1>';
+    html += '<div class="meta">Project: ' + escapeHtml(project) + ' | Generated: ' + now + ' | k = ' + k + ' studies | N = ' + totalN.toLocaleString() + ' | Method: ' + escapeHtml(r.method || 'Bivariate REML') + '</div>';
+    // Pooled results
+    html += '<h2>Pooled Results</h2>';
+    html += '<div class="stat-box">';
+    html += '<strong>Pooled Sensitivity:</strong> ' + ((r.pooledSens ?? 0) * 100).toFixed(1) + '% (' + confPct + '% CI: ' + ((r.sensCI?.[0] ?? 0) * 100).toFixed(1) + '\u2013' + ((r.sensCI?.[1] ?? 0) * 100).toFixed(1) + '%)<br>';
+    html += '<strong>Pooled Specificity:</strong> ' + ((r.pooledSpec ?? 0) * 100).toFixed(1) + '% (' + confPct + '% CI: ' + ((r.specCI?.[0] ?? 0) * 100).toFixed(1) + '\u2013' + ((r.specCI?.[1] ?? 0) * 100).toFixed(1) + '%)<br>';
+    html += '<strong>DOR:</strong> ' + (r.dor ?? 0).toFixed(1) + '<br>';
+    if (r.plr) html += '<strong>PLR:</strong> ' + r.plr.toFixed(2) + ' | <strong>NLR:</strong> ' + r.nlr.toFixed(2) + '<br>';
+    if (r.heterogeneity) html += '<strong>I\u00B2 Sens:</strong> ' + (r.heterogeneity.I2_sens ?? 0).toFixed(1) + '% | <strong>I\u00B2 Spec:</strong> ' + (r.heterogeneity.I2_spec ?? 0).toFixed(1) + '%';
+    html += '</div>';
+    // GRADE
+    if (gradeSummary) { html += '<h2>GRADE Certainty Assessment</h2>' + gradeSummary; }
+    // Study data
+    html += '<h2>Included Studies</h2>' + studyTable;
+    // Plots
+    if (srocSvg) html += '<h2>SROC Plot</h2><div class="plot">' + srocSvg + '</div>';
+    if (forestSensSvg) html += '<h2>Forest Plot \u2014 Sensitivity</h2><div class="plot">' + forestSensSvg + '</div>';
+    if (forestSpecSvg) html += '<h2>Forest Plot \u2014 Specificity</h2><div class="plot">' + forestSpecSvg + '</div>';
+    if (funnelSvg) html += '<h2>Deeks\u2019 Funnel Plot</h2><div class="plot">' + funnelSvg + '</div>';
+    if (quadas2) html += '<h2>QUADAS-2 Risk of Bias</h2><div class="plot">' + quadas2 + '</div>';
+    // Methods + Results
+    html += '<h2>Methods</h2><p style="text-indent:2em">' + escapeHtml(methodsText) + '</p>';
+    html += '<h2>Results</h2><p style="text-indent:2em">' + escapeHtml(resultsText) + '</p>';
+    // Footer
+    html += '<hr style="margin-top:40px"><p style="font-size:0.75rem;color:#9ca3af">Generated by MetaSprint DTA. For research and educational purposes only. Not a substitute for systematic review.</p>';
+    html += '</body></html>';
+    // Download
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'DTA_Report_' + now + '.html';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Report downloaded as HTML', 'success');
   }
 
   // --- Decision Curve Analysis (DCA) for diagnostic tests (S3 implementation) ---
