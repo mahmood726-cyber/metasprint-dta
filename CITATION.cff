@@ -1,0 +1,33 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "MetaSprint DTA: Automated Open-Access Evidence Discovery for Diagnostic Test Accuracy Meta-Analysis"
+version: 1.0.0
+date-released: 2026-03-18
+license: MIT
+repository-code: https://github.com/mahmood726-cyber/metasprint-dta
+abstract: >-
+  Browser-based platform integrating a four-source Open-Access Discovery Pipeline
+  with bivariate GLMM/HSROC statistical engine for diagnostic test accuracy
+  meta-analysis. Validated against 70 published meta-analyses across 13 clinical
+  specialties with R cross-validation (33/33 parity).
+keywords:
+  - diagnostic test accuracy
+  - meta-analysis
+  - bivariate model
+  - HSROC
+  - open access
+  - evidence synthesis
+  - browser application
+  - automated extraction
+authors:
+  - family-names: Ahmad
+    given-names: Mahmood
+preferred-citation:
+  type: article
+  title: "MetaSprint DTA: Automated Open-Access Evidence Discovery for Diagnostic Test Accuracy Meta-Analysis"
+  authors:
+    - family-names: Ahmad
+      given-names: Mahmood
+  journal: F1000Research
+  year: 2026

@@ -1956,14 +1956,14 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
           <div id="advExclusionMatrixContainer" style="margin-top:16px"></div>
           <div id="advMCIDAnalysisContainer" style="margin-top:16px">
             <div id="mcidDTASection" style="display:none">
-              <h4 style="margin-bottom:8px">Minimum Clinically Important Difference (MCID) Threshold Analysis</h4>
+              <h4 style="margin-bottom:8px">Target Performance Threshold Analysis</h4>
               <p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:8px">Set minimum acceptable sensitivity and specificity thresholds to assess whether the pooled estimates meet clinical requirements.</p>
               <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
                 <label style="font-size:0.82rem">Min Sensitivity (%): <input type="number" id="mcid-sens-value" value="80" min="1" max="99" step="1" style="width:60px;padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);font-size:0.82rem"></label>
                 <label style="font-size:0.82rem">Min Specificity (%): <input type="number" id="mcid-spec-value" value="80" min="1" max="99" step="1" style="width:60px;padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);font-size:0.82rem"></label>
                 <button onclick="renderMCIDAnalysisDTA()" class="btn-sm btn-info">Analyze</button>
               </div>
-              <div id="mcidDTAArea"></div>
+              <div id="mcidDTAArea" aria-live="polite"></div>
             </div>
           </div>
           <div id="advPatientRiskContainer" style="margin-top:16px">
@@ -1971,10 +1971,10 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
               <h4 style="margin-bottom:8px">Patient Risk Calculator (Post-Test Probability)</h4>
               <p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:8px">Estimate post-test probabilities based on the pooled sensitivity and specificity at a given pre-test probability (disease prevalence).</p>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-                <label style="font-size:0.82rem">Pre-test probability: <span id="risk-pretest-val">20%</span></label>
+                <label for="risk-pretest" style="font-size:0.82rem">Pre-test probability: <span id="risk-pretest-val">20%</span></label>
                 <input type="range" id="risk-pretest" min="1" max="99" value="20" style="width:200px" oninput="computePatientRiskDTA()">
               </div>
-              <div id="patientRiskDTAResults"></div>
+              <div id="patientRiskDTAResults" aria-live="polite"></div>
             </div>
           </div>
           <div id="advEffectConverterContainer" style="margin-top:16px">
@@ -1995,7 +1995,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
                 <label style="font-size:0.82rem">Prevalence (%): <input type="number" id="esc-dta-prev" value="20" min="1" max="99" step="1" style="width:60px;padding:3px 6px;border:1px solid var(--border);border-radius:var(--radius);font-size:0.82rem"></label>
                 <button onclick="convertEffectSizeDTA()" class="btn-sm btn-info">Convert</button>
               </div>
-              <div id="escDTAResults"></div>
+              <div id="escDTAResults" aria-live="polite"></div>
             </div>
           </div>
         </div>
@@ -12233,7 +12233,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     for (var i = 0; i < compResult.testResults.length; i++) {
       var t = compResult.testResults[i];
       html += '<tr style="border-bottom:1px solid var(--border)">' +
-        '<td style="padding:4px 8px;font-weight:600">' + escapeHtml(t.name) + '</td>' +
+        '<th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">' + escapeHtml(t.name) + '</td>' +
         '<td style="text-align:center;padding:4px 8px">' + t.k + '</td>' +
         '<td style="text-align:center;padding:4px 8px">' + (t.sens * 100).toFixed(1) + '% [' + (t.sensCI[0] * 100).toFixed(1) + ', ' + (t.sensCI[1] * 100).toFixed(1) + ']</td>' +
         '<td style="text-align:center;padding:4px 8px">' + (t.spec * 100).toFixed(1) + '% [' + (t.specCI[0] * 100).toFixed(1) + ', ' + (t.specCI[1] * 100).toFixed(1) + ']</td>' +
@@ -14131,6 +14131,8 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
   async function runAnalysis() {
     if (_analysisInFlight) return;
     _analysisInFlight = true;
+    window._lastDTAAnalysisResult = null;
+    window._lastDTAAnalysisMethod = null;
     let spinner = document.getElementById('analysisSpinner');
     if (!spinner) {
       spinner = document.createElement('div');
@@ -14175,6 +14177,8 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     if (!result) { showToast('DTA analysis failed. Check study data.', 'warning'); return; }
     if (rawMethod === 'univariate') result.method = 'Univariate DL+HKSJ';
     lastAnalysisResult = result;
+    window._lastDTAAnalysisResult = result;
+    window._lastDTAAnalysisMethod = rawMethod;
 
     // Render
     renderDTAResults(result, confLevel, confPct, validation.method, rawMethod);
@@ -14787,13 +14791,13 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
 
     html += '<table style="width:100%;max-width:520px;font-size:0.82rem;border-collapse:collapse">';
     html += '<tbody>';
-    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">Intercept</td><td style="text-align:center">' + intercept.toFixed(4) + '</td></tr>';
-    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">Slope</td><td style="text-align:center">' + slope.toFixed(4) + '</td></tr>';
-    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">SE(Slope)</td><td style="text-align:center">' + seSlope.toFixed(4) + '</td></tr>';
-    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">t-statistic</td><td style="text-align:center">' + tStat.toFixed(3) + ' (df=' + dfReg + ')</td></tr>';
-    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">p-value</td><td style="text-align:center;' + (pValue < 0.05 ? 'color:var(--danger);font-weight:600' : '') + '">' + (pValue < 0.001 ? '< 0.001' : pValue.toFixed(3)) + '</td></tr>';
-    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">Residual \u03C4\u00B2</td><td style="text-align:center">' + tau2.toFixed(4) + '</td></tr>';
-    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">R\u00B2 analogue</td><td style="text-align:center">' + (R2tau * 100).toFixed(1) + '%</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">Intercept</td><td style="text-align:center">' + intercept.toFixed(4) + '</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">Slope</td><td style="text-align:center">' + slope.toFixed(4) + '</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">SE(Slope)</td><td style="text-align:center">' + seSlope.toFixed(4) + '</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">t-statistic</td><td style="text-align:center">' + tStat.toFixed(3) + ' (df=' + dfReg + ')</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">p-value</td><td style="text-align:center;' + (pValue < 0.05 ? 'color:var(--danger);font-weight:600' : '') + '">' + (pValue < 0.001 ? '< 0.001' : pValue.toFixed(3)) + '</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">Residual \u03C4\u00B2</td><td style="text-align:center">' + tau2.toFixed(4) + '</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">R\u00B2 analogue</td><td style="text-align:center">' + (R2tau * 100).toFixed(1) + '%</td></tr>';
     html += '</tbody></table>';
 
     // --- Bubble scatter plot (SVG) ---
@@ -15404,7 +15408,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
   /* ═══════════════════════════════════════════════════════════════════
      PORTED FROM LIVINGMETA: DRAPERY PLOT (DTA-adapted, SVG)
      Plots p-value function for the pooled log-DOR estimate.
-     Reference: Rucker & Schwarzer (2020), Res Synth Methods.
+     Reference: Rucker & Schwarzer (2021), Res Synth Methods.
      ═══════════════════════════════════════════════════════════════════ */
   function renderDraperyPlotDTA(result, confLevel) {
     const container = document.getElementById('advDraperyPlotContainer');
@@ -15482,7 +15486,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     svg += '<text x="' + (nullX + 3).toFixed(1) + '" y="' + (H - pad.bottom - 4) + '" font-size="8" fill="var(--text-muted)">DOR=1</text>';
 
     /* Title */
-    svg += '<text x="' + (W / 2) + '" y="18" text-anchor="middle" font-size="13" font-weight="600" fill="var(--text)">Drapery Plot \u2014 P-value Function (R\u00FCcker &amp; Schwarzer 2020)</text>';
+    svg += '<text x="' + (W / 2) + '" y="18" text-anchor="middle" font-size="13" font-weight="600" fill="var(--text)">Drapery Plot \u2014 P-value Function (R\u00FCcker &amp; Schwarzer 2021)</text>';
     svg += '</svg>';
 
     let html = '<h4 style="margin-bottom:8px">Drapery Plot</h4>';
@@ -15511,7 +15515,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     const method = result.method;
     const fullSens = result.pooledSens;
     const fullSpec = result.pooledSpec;
-    const fullDOR = result.dor;
+    const fullDOR = result.dor ?? 0;
     /* Determine if the pooled DOR CI excludes 1 (= statistically significant) */
     const fullSig = result.dorCI ? (result.dorCI[0] > 1 || result.dorCI[1] < 1) : false;
     const rows = [];
@@ -15545,7 +15549,8 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     let html = '<h4 style="margin-bottom:8px">Exclusion Sensitivity Matrix</h4>';
     html += '<p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:8px">Shows the effect of excluding each study on the pooled sensitivity, specificity, and DOR. Highlights studies whose exclusion changes statistical significance.</p>';
     html += '<div style="overflow-x:auto"><table style="width:100%;font-size:0.78rem;border-collapse:collapse">';
-    html += '<thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:4px 6px">Excluded Study</th><th>Sens</th><th>\u0394 Sens</th><th>Spec</th><th>\u0394 Spec</th><th>DOR</th><th>\u0394 DOR</th><th>Sig?</th><th>Conclusion</th></tr></thead><tbody>';
+    html += '<caption class="sr-only">Exclusion sensitivity matrix: effect of removing each study on pooled estimates</caption>';
+    html += '<thead><tr style="border-bottom:2px solid var(--border)"><th scope="col" style="text-align:left;padding:4px 6px">Excluded Study</th><th scope="col">Sens</th><th scope="col">\u0394 Sens</th><th scope="col">Spec</th><th scope="col">\u0394 Spec</th><th scope="col">DOR</th><th scope="col">\u0394 DOR</th><th scope="col">Sig?</th><th scope="col">Conclusion</th></tr></thead><tbody>';
     for (const r of rows) {
       const changeBg = r.sigChanged ? 'background:rgba(220,38,38,0.06);' : '';
       html += '<tr style="border-bottom:1px solid var(--border);' + changeBg + '">';
@@ -15576,15 +15581,15 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
   function renderMCIDAnalysisDTA() {
     const area = document.getElementById('mcidDTAArea');
     if (!area) return;
-    if (!lastAnalysisResult || !lastAnalysisResult.pooledSens) {
-      area.innerHTML = '<span style="opacity:0.6">Run analysis first</span>';
+    if (!lastAnalysisResult || lastAnalysisResult.pooledSens == null || lastAnalysisResult.pooledSpec == null) {
+      area.innerHTML = '<span style="color:var(--text-muted)">Run analysis first</span>';
       return;
     }
     const r = lastAnalysisResult;
     const minSens = parseFloat(document.getElementById('mcid-sens-value')?.value) / 100;
     const minSpec = parseFloat(document.getElementById('mcid-spec-value')?.value) / 100;
     if (!isFinite(minSens) || !isFinite(minSpec) || minSens <= 0 || minSpec <= 0) {
-      area.innerHTML = '<span style="opacity:0.6">Enter valid threshold values</span>';
+      area.innerHTML = '<span style="color:var(--text-muted)">Enter valid threshold values</span>';
       return;
     }
 
@@ -15627,41 +15632,41 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     /* Sensitivity threshold cards */
     const sensColor = sensMeets ? '#16a34a' : '#dc2626';
     html += '<div style="background:var(--bg-card,var(--surface));padding:10px;border-radius:6px;text-align:center;border-left:3px solid ' + sensColor + '">';
-    html += '<div style="font-size:1.1rem;font-weight:700;color:' + sensColor + '">' + (sensMeets ? '\u2714' : '\u2718') + ' ' + (pooledSens * 100).toFixed(1) + '%</div>';
-    html += '<div style="font-size:0.7rem;opacity:0.6">Pooled Sens vs ' + (minSens * 100).toFixed(0) + '% threshold</div></div>';
+    html += '<div style="font-size:1.1rem;font-weight:700;color:' + sensColor + '"><span aria-hidden="true">' + (sensMeets ? '\u2714' : '\u2718') + '</span> ' + (pooledSens * 100).toFixed(1) + '% <span style="font-size:0.72rem;font-weight:600">' + (sensMeets ? 'Met' : 'Not met') + '</span></div>';
+    html += '<div style="font-size:0.7rem;color:var(--text-muted)">Pooled Sens vs ' + (minSens * 100).toFixed(0) + '% threshold</div></div>';
 
     const specColor = specMeets ? '#16a34a' : '#dc2626';
     html += '<div style="background:var(--bg-card,var(--surface));padding:10px;border-radius:6px;text-align:center;border-left:3px solid ' + specColor + '">';
-    html += '<div style="font-size:1.1rem;font-weight:700;color:' + specColor + '">' + (specMeets ? '\u2714' : '\u2718') + ' ' + (pooledSpec * 100).toFixed(1) + '%</div>';
-    html += '<div style="font-size:0.7rem;opacity:0.6">Pooled Spec vs ' + (minSpec * 100).toFixed(0) + '% threshold</div></div>';
+    html += '<div style="font-size:1.1rem;font-weight:700;color:' + specColor + '"><span aria-hidden="true">' + (specMeets ? '\u2714' : '\u2718') + '</span> ' + (pooledSpec * 100).toFixed(1) + '% <span style="font-size:0.72rem;font-weight:600">' + (specMeets ? 'Met' : 'Not met') + '</span></div>';
+    html += '<div style="font-size:0.7rem;color:var(--text-muted)">Pooled Spec vs ' + (minSpec * 100).toFixed(0) + '% threshold</div></div>';
 
     const sensCIColor = sensCIMeets ? '#16a34a' : '#d97706';
     html += '<div style="background:var(--bg-card,var(--surface));padding:10px;border-radius:6px;text-align:center">';
     html += '<div style="font-size:1.1rem;font-weight:700;color:' + sensCIColor + '">' + (sensCIMeets ? '\u2714 CI above' : '\u2718 CI crosses') + '</div>';
-    html += '<div style="font-size:0.7rem;opacity:0.6">Sens CI vs threshold</div></div>';
+    html += '<div style="font-size:0.7rem;color:var(--text-muted)">Sens CI vs threshold</div></div>';
 
     const specCIColor = specCIMeets ? '#16a34a' : '#d97706';
     html += '<div style="background:var(--bg-card,var(--surface));padding:10px;border-radius:6px;text-align:center">';
     html += '<div style="font-size:1.1rem;font-weight:700;color:' + specCIColor + '">' + (specCIMeets ? '\u2714 CI above' : '\u2718 CI crosses') + '</div>';
-    html += '<div style="font-size:0.7rem;opacity:0.6">Spec CI vs threshold</div></div>';
+    html += '<div style="font-size:0.7rem;color:var(--text-muted)">Spec CI vs threshold</div></div>';
 
     html += '<div style="background:var(--bg-card,var(--surface));padding:10px;border-radius:6px;text-align:center">';
     html += '<div style="font-size:1.1rem;font-weight:700">' + nSensMeet + '/' + k + '</div>';
-    html += '<div style="font-size:0.7rem;opacity:0.6">Studies meeting Sens threshold</div></div>';
+    html += '<div style="font-size:0.7rem;color:var(--text-muted)">Studies meeting Sens threshold</div></div>';
 
     html += '<div style="background:var(--bg-card,var(--surface));padding:10px;border-radius:6px;text-align:center">';
     html += '<div style="font-size:1.1rem;font-weight:700">' + nSpecMeet + '/' + k + '</div>';
-    html += '<div style="font-size:0.7rem;opacity:0.6">Studies meeting Spec threshold</div></div>';
+    html += '<div style="font-size:0.7rem;color:var(--text-muted)">Studies meeting Spec threshold</div></div>';
 
     if (pSensMeets != null) {
       html += '<div style="background:var(--bg-card,var(--surface));padding:10px;border-radius:6px;text-align:center">';
       html += '<div style="font-size:1.1rem;font-weight:700">' + (pSensMeets * 100).toFixed(1) + '%</div>';
-      html += '<div style="font-size:0.7rem;opacity:0.6">P(future study Sens \u2265 threshold)</div></div>';
+      html += '<div style="font-size:0.7rem;color:var(--text-muted)">P(future study Sens \u2265 threshold)</div></div>';
     }
     if (pSpecMeets != null) {
       html += '<div style="background:var(--bg-card,var(--surface));padding:10px;border-radius:6px;text-align:center">';
       html += '<div style="font-size:1.1rem;font-weight:700">' + (pSpecMeets * 100).toFixed(1) + '%</div>';
-      html += '<div style="font-size:0.7rem;opacity:0.6">P(future study Spec \u2265 threshold)</div></div>';
+      html += '<div style="font-size:0.7rem;color:var(--text-muted)">P(future study Spec \u2265 threshold)</div></div>';
     }
     html += '</div>';
     area.innerHTML = html;
@@ -15677,25 +15682,25 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     const slider = document.getElementById('risk-pretest');
     const valLabel = document.getElementById('risk-pretest-val');
     if (!area || !slider) return;
-    const prev = parseInt(slider.value) / 100;
+    const prev = parseFloat(slider.value) / 100;
     if (valLabel) valLabel.textContent = (prev * 100).toFixed(0) + '%';
 
-    if (!lastAnalysisResult || !lastAnalysisResult.pooledSens) {
-      area.innerHTML = '<span style="opacity:0.6">Run analysis first</span>';
+    if (!lastAnalysisResult || lastAnalysisResult.pooledSens == null || lastAnalysisResult.pooledSpec == null) {
+      area.innerHTML = '<span style="color:var(--text-muted)">Run analysis first</span>';
       return;
     }
     const r = lastAnalysisResult;
-    const sens = r.pooledSens;
-    const spec = r.pooledSpec;
+    const sens = Math.min(0.9999, Math.max(0.0001, r.pooledSens));
+    const spec = Math.min(0.9999, Math.max(0.0001, r.pooledSpec));
     const plr = r.plr ?? (sens / (1 - spec));
     const nlr = r.nlr ?? ((1 - sens) / spec);
 
     /* Post-test probabilities via Bayes' theorem */
     const preOdds = prev / (1 - prev);
-    const postOddsPos = preOdds * plr;
-    const postOddsNeg = preOdds * nlr;
-    const postProbPos = postOddsPos / (1 + postOddsPos); /* PPV = post-test prob given positive */
-    const postProbNeg = postOddsNeg / (1 + postOddsNeg); /* 1-NPV = post-test prob given negative */
+    const postOddsPos = isFinite(plr) ? preOdds * plr : preOdds * 999;
+    const postOddsNeg = isFinite(nlr) ? preOdds * nlr : preOdds * 0.001;
+    const postProbPos = postOddsPos / (1 + postOddsPos); /* post-test probability given positive result */
+    const postProbNeg = postOddsNeg / (1 + postOddsNeg); /* post-test probability given negative result */
     const npv = 1 - postProbNeg;
 
     /* Per-1000 breakdown */
@@ -15711,27 +15716,27 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
 
     html += '<div style="background:var(--bg-card,var(--surface));padding:10px;border-radius:6px;text-align:center">';
     html += '<div style="font-size:1.2rem;font-weight:700">' + (prev * 100).toFixed(1) + '%</div>';
-    html += '<div style="font-size:0.7rem;opacity:0.6">Pre-test Probability</div></div>';
+    html += '<div style="font-size:0.7rem;color:var(--text-muted)">Pre-test Probability</div></div>';
 
     html += '<div style="background:var(--bg-card,var(--surface));padding:10px;border-radius:6px;text-align:center;border-left:3px solid #3b82f6">';
     html += '<div style="font-size:1.2rem;font-weight:700;color:#3b82f6">' + (postProbPos * 100).toFixed(1) + '%</div>';
-    html += '<div style="font-size:0.7rem;opacity:0.6">Post-test Prob (+ result) = PPV</div></div>';
+    html += '<div style="font-size:0.7rem;color:var(--text-muted)">Post-test Prob (+ result)</div></div>';
 
     html += '<div style="background:var(--bg-card,var(--surface));padding:10px;border-radius:6px;text-align:center;border-left:3px solid #16a34a">';
     html += '<div style="font-size:1.2rem;font-weight:700;color:#16a34a">' + (npv * 100).toFixed(1) + '%</div>';
-    html += '<div style="font-size:0.7rem;opacity:0.6">NPV (confidence if neg)</div></div>';
+    html += '<div style="font-size:0.7rem;color:var(--text-muted)">Confidence if negative</div></div>';
 
     html += '<div style="background:var(--bg-card,var(--surface));padding:10px;border-radius:6px;text-align:center;border-left:3px solid #dc2626">';
     html += '<div style="font-size:1.2rem;font-weight:700;color:#dc2626">' + (postProbNeg * 100).toFixed(1) + '%</div>';
-    html += '<div style="font-size:0.7rem;opacity:0.6">Residual risk if neg</div></div>';
+    html += '<div style="font-size:0.7rem;color:var(--text-muted)">Residual risk if neg</div></div>';
 
     html += '<div style="background:var(--bg-card,var(--surface));padding:10px;border-radius:6px;text-align:center">';
-    html += '<div style="font-size:1.2rem;font-weight:700">' + plr.toFixed(1) + '</div>';
-    html += '<div style="font-size:0.7rem;opacity:0.6">PLR (rule-in power)</div></div>';
+    html += '<div style="font-size:1.2rem;font-weight:700">' + (isFinite(plr) ? plr.toFixed(1) : '>999') + '</div>';
+    html += '<div style="font-size:0.7rem;color:var(--text-muted)">PLR (rule-in power)</div></div>';
 
     html += '<div style="background:var(--bg-card,var(--surface));padding:10px;border-radius:6px;text-align:center">';
-    html += '<div style="font-size:1.2rem;font-weight:700">' + nlr.toFixed(3) + '</div>';
-    html += '<div style="font-size:0.7rem;opacity:0.6">NLR (rule-out power)</div></div>';
+    html += '<div style="font-size:1.2rem;font-weight:700">' + (isFinite(nlr) ? nlr.toFixed(3) : '<0.001') + '</div>';
+    html += '<div style="font-size:0.7rem;color:var(--text-muted)">NLR (rule-out power)</div></div>';
 
     html += '</div>';
 
@@ -15757,7 +15762,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     const val = parseFloat(document.getElementById('esc-dta-value')?.value);
     const prev = parseFloat(document.getElementById('esc-dta-prev')?.value) / 100;
     if (!isFinite(val) || !isFinite(prev) || prev <= 0 || prev >= 1) {
-      area.innerHTML = '<span style="opacity:0.6">Enter valid positive value and prevalence (1-99%)</span>';
+      area.innerHTML = '<span style="color:var(--text-muted)">Enter valid positive value and prevalence (1-99%)</span>';
       return;
     }
 
@@ -15768,15 +15773,15 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     let sens = null, spec = null;
 
     if (type === 'dor') {
-      if (val <= 0) { area.innerHTML = '<span style="opacity:0.6">DOR must be positive</span>'; return; }
+      if (val <= 0) { area.innerHTML = '<span style="color:var(--text-muted)">DOR must be positive</span>'; return; }
       dor = val;
       /* Approximate: if DOR = (sens/(1-sens)) * (spec/(1-spec)), assume sens ~ spec
          => DOR = (s/(1-s))^2 => s = sqrt(DOR)/(1+sqrt(DOR)) */
       const sqrtDOR = Math.sqrt(dor);
-      sens = sqrtDOR / (1 + sqrtDOR);
+      sens = Math.min(0.999, Math.max(0.001, sqrtDOR / (1 + sqrtDOR)));
       spec = sens; /* symmetric assumption */
     } else if (type === 'plr') {
-      if (val <= 0) { area.innerHTML = '<span style="opacity:0.6">PLR must be positive</span>'; return; }
+      if (val <= 0) { area.innerHTML = '<span style="color:var(--text-muted)">PLR must be positive</span>'; return; }
       plr = val;
       /* PLR = sens/(1-spec). Assume symmetric: sens=spec=s, PLR = s/(1-s) => s = PLR/(1+PLR) */
       const s = plr / (1 + plr);
@@ -15784,7 +15789,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       spec = sens;
       dor = (sens / (1 - sens)) * (spec / (1 - spec));
     } else if (type === 'nlr') {
-      if (val <= 0 || val >= 1) { area.innerHTML = '<span style="opacity:0.6">NLR should be between 0 and 1</span>'; return; }
+      if (val <= 0 || val >= 1) { area.innerHTML = '<span style="color:var(--text-muted)">NLR should be between 0 and 1</span>'; return; }
       nlr = val;
       /* NLR = (1-sens)/spec. Assume symmetric: sens=spec=s, NLR = (1-s)/s => s = 1/(1+NLR) */
       const s = 1 / (1 + nlr);
@@ -15792,20 +15797,20 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
       spec = sens;
       dor = (sens / (1 - sens)) * (spec / (1 - spec));
     } else if (type === 'youden') {
-      if (val <= 0 || val > 1) { area.innerHTML = '<span style="opacity:0.6">Youden J should be between 0 and 1</span>'; return; }
+      if (val <= 0 || val > 1) { area.innerHTML = '<span style="color:var(--text-muted)">Youden J should be between 0 and 1</span>'; return; }
       youdenJ = val;
       /* J = sens + spec - 1. Assume symmetric: J = 2s - 1 => s = (J+1)/2 */
-      sens = (youdenJ + 1) / 2;
+      sens = Math.min(0.999, Math.max(0.001, (youdenJ + 1) / 2));
       spec = sens;
       dor = (sens / (1 - sens)) * (spec / (1 - spec));
     } else if (type === 'auc') {
-      if (val <= 0.5 || val > 1) { area.innerHTML = '<span style="opacity:0.6">AUC should be between 0.5 and 1</span>'; return; }
+      if (val <= 0.5 || val > 1) { area.innerHTML = '<span style="color:var(--text-muted)">AUC should be between 0.5 and 1</span>'; return; }
       auc = val;
-      /* From HSROC: AUC ~ Phi(d/sqrt(2)) where d = sqrt(log(DOR)). Inverse: d = sqrt(2)*Phi^{-1}(AUC), DOR = exp(d^2) */
+      /* From HSROC: AUC = Phi(Lambda/sqrt(2)) where Lambda = ln(DOR). Inverse: Lambda = sqrt(2)*Phi^{-1}(AUC), DOR = exp(Lambda) */
       const d = Math.SQRT2 * normalQuantile(Math.min(0.999, auc));
-      dor = Math.exp(d * d);
+      dor = Math.exp(d);
       const sqrtDOR = Math.sqrt(dor);
-      sens = sqrtDOR / (1 + sqrtDOR);
+      sens = Math.min(0.999, Math.max(0.001, sqrtDOR / (1 + sqrtDOR)));
       spec = sens;
     }
 
@@ -15817,8 +15822,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     if (nlr == null && sens != null && spec != null) nlr = (1 - sens) / spec;
     if (youdenJ == null && sens != null && spec != null) youdenJ = sens + spec - 1;
     if (auc == null && dor != null && dor > 0) {
-      const d = Math.sqrt(Math.log(dor));
-      auc = normalCDF(d / Math.SQRT2);
+      auc = normalCDF(Math.log(dor) / Math.SQRT2);
     }
     const nnd = youdenJ > 0 ? Math.ceil(1 / youdenJ) : null;
 
@@ -15828,18 +15832,18 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     const npvVal = nlr != null ? 1 - (preOdds * nlr) / (1 + preOdds * nlr) : null;
 
     let html = '<table style="font-size:0.82rem;border-collapse:collapse;width:100%">';
-    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">Sensitivity</td><td>' + (sens != null ? (sens * 100).toFixed(1) + '%' : 'N/A') + '</td>';
-    html += '<td style="padding:4px 8px;font-weight:600">Specificity</td><td>' + (spec != null ? (spec * 100).toFixed(1) + '%' : 'N/A') + '</td></tr>';
-    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">DOR</td><td>' + (dor != null ? dor.toFixed(2) : 'N/A') + '</td>';
-    html += '<td style="padding:4px 8px;font-weight:600">log(DOR)</td><td>' + (dor != null && dor > 0 ? Math.log(dor).toFixed(3) : 'N/A') + '</td></tr>';
-    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">PLR</td><td>' + (plr != null ? plr.toFixed(2) : 'N/A') + '</td>';
-    html += '<td style="padding:4px 8px;font-weight:600">NLR</td><td>' + (nlr != null ? nlr.toFixed(3) : 'N/A') + '</td></tr>';
-    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">Youden J</td><td>' + (youdenJ != null ? youdenJ.toFixed(3) : 'N/A') + '</td>';
-    html += '<td style="padding:4px 8px;font-weight:600">NND</td><td>' + (nnd != null ? nnd : 'N/A') + '</td></tr>';
-    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">AUC</td><td>' + (auc != null ? (auc * 100).toFixed(1) + '%' : 'N/A') + '</td>';
-    html += '<td style="padding:4px 8px;font-weight:600">Prevalence</td><td>' + (prev * 100).toFixed(1) + '%</td></tr>';
-    html += '<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 8px;font-weight:600">PPV (at prev)</td><td>' + (ppv != null ? (ppv * 100).toFixed(1) + '%' : 'N/A') + '</td>';
-    html += '<td style="padding:4px 8px;font-weight:600">NPV (at prev)</td><td>' + (npvVal != null ? (npvVal * 100).toFixed(1) + '%' : 'N/A') + '</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">Sensitivity</td><td>' + (sens != null ? (sens * 100).toFixed(1) + '%' : 'N/A') + '</td>';
+    html += '<th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">Specificity</td><td>' + (spec != null ? (spec * 100).toFixed(1) + '%' : 'N/A') + '</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">DOR</td><td>' + (dor != null ? dor.toFixed(2) : 'N/A') + '</td>';
+    html += '<th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">log(DOR)</td><td>' + (dor != null && dor > 0 ? Math.log(dor).toFixed(3) : 'N/A') + '</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">PLR</td><td>' + (plr != null ? plr.toFixed(2) : 'N/A') + '</td>';
+    html += '<th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">NLR</td><td>' + (nlr != null ? nlr.toFixed(3) : 'N/A') + '</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">Youden J</td><td>' + (youdenJ != null ? youdenJ.toFixed(3) : 'N/A') + '</td>';
+    html += '<th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">NND</td><td>' + (nnd != null ? nnd : 'N/A') + '</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">AUC</td><td>' + (auc != null ? (auc * 100).toFixed(1) + '%' : 'N/A') + '</td>';
+    html += '<th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">Prevalence</td><td>' + (prev * 100).toFixed(1) + '%</td></tr>';
+    html += '<tr style="border-bottom:1px solid var(--border)"><th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">PPV (at prev)</td><td>' + (ppv != null ? (ppv * 100).toFixed(1) + '%' : 'N/A') + '</td>';
+    html += '<th scope="row" style="padding:4px 8px;font-weight:600;text-align:left">NPV (at prev)</td><td>' + (npvVal != null ? (npvVal * 100).toFixed(1) + '%' : 'N/A') + '</td></tr>';
     html += '</table>';
     html += '<p style="font-size:0.72rem;color:var(--text-muted);margin-top:4px;font-style:italic">Note: Conversions assume a symmetric operating point (sens \u2248 spec) when only a single summary measure is provided. Actual sens/spec may differ.</p>';
     area.innerHTML = html;
@@ -28853,5 +28857,127 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
     }
   });
   </script>
+  <script>
+    window.__webrValidationConfig = {
+      appName: 'MetaSprint DTA',
+      intro: 'Reviewer-facing WebR validation for the live DTA analysis. Run the DTA meta-analysis first, then click Run to compare the current result against R.',
+      autoRun: false,
+      webRTimeoutMs: 180000,
+      webRAttempts: 2,
+    ready: async (helpers) => {
+      await helpers.waitFor(() => {
+        const summary = document.getElementById('analysisSummary');
+        return !!(
+          window._lastDTAAnalysisResult &&
+          Array.isArray(window._lastDTAAnalysisResult.studyData) &&
+          window._lastDTAAnalysisResult.studyData.length >= 2 &&
+          summary &&
+          summary.dataset.lastResult
+        );
+      }, 15000, 150);
+    },
+    tests: [
+      {
+        name: 'Pooled sensitivity, specificity, and DOR',
+        collect: () => {
+          const result = window._lastDTAAnalysisResult;
+          const rawMethod = window._lastDTAAnalysisMethod || document.getElementById('methodSelect')?.value || 'bivariate';
+          const studies = Array.isArray(result?.studyData) ? result.studyData : [];
+          return {
+            rawMethod,
+            k: Number(result?.k ?? studies.length ?? 0),
+            tp: studies.map((s) => Number(s.tp ?? 0)),
+            fp: studies.map((s) => Number(s.fp ?? 0)),
+            fn: studies.map((s) => Number(s.fn ?? 0)),
+            tn: studies.map((s) => Number(s.tn ?? 0)),
+            logitSens: studies.map((s) => Number(s.logitSens ?? NaN)),
+            varLogitSens: studies.map((s) => Number(s.varLogitSens ?? NaN)),
+            logitSpec: studies.map((s) => Number(s.logitSpec ?? NaN)),
+            varLogitSpec: studies.map((s) => Number(s.varLogitSpec ?? NaN)),
+            pooledSens: Number(result?.pooledSens ?? NaN),
+            pooledSpec: Number(result?.pooledSpec ?? NaN),
+            dor: Number(result?.dor ?? NaN),
+          };
+        },
+        r: (payload, helpers) => {
+          if (!payload || payload.k < 2) {
+            return 'cat("FAIL|Run a DTA meta-analysis with at least 2 studies before launching reviewer validation.")';
+          }
+
+          const quotedMethod = helpers.rString(String(payload.rawMethod || 'bivariate'));
+          if (payload.rawMethod === 'univariate') {
+            return `
+method_label <- ${quotedMethod}
+if (!requireNamespace("metafor", quietly = TRUE)) webr::install("metafor", quiet = TRUE)
+suppressPackageStartupMessages(library(metafor))
+yi_sens <- ${helpers.rVector(payload.logitSens)}
+vi_sens <- ${helpers.rVector(payload.varLogitSens)}
+yi_spec <- ${helpers.rVector(payload.logitSpec)}
+vi_spec <- ${helpers.rVector(payload.varLogitSpec)}
+  fit_sens <- rma(yi = yi_sens, vi = vi_sens, method = "DL", test = "knha")
+  fit_spec <- rma(yi = yi_spec, vi = vi_spec, method = "DL", test = "knha")
+  r_sens <- plogis(as.numeric(fit_sens$b[1,1]))
+  r_spec <- plogis(as.numeric(fit_spec$b[1,1]))
+  r_dor <- exp(as.numeric(fit_sens$b[1,1]) + as.numeric(fit_spec$b[1,1]))
+  d_sens <- abs(r_sens - ${payload.pooledSens})
+  d_spec <- abs(r_spec - ${payload.pooledSpec})
+  d_dor <- abs(r_dor - ${payload.dor})
+  rel_dor <- d_dor / max(${payload.dor}, 1)
+  ok <- d_sens <= 0.01 && d_spec <= 0.01 && rel_dor <= 0.05
+  status_line <- paste0(
+    if (ok) "PASS|" else "FAIL|",
+    sprintf(
+      "method=%s via metafor; sens diff=%.4f; spec diff=%.4f; DOR diff=%.4f (%.2f%%)",
+      method_label,
+      d_sens,
+      d_spec,
+      d_dor,
+      rel_dor * 100
+    )
+  )
+  cat(status_line)
+  status_line
+  `;
+            }
+
+          return `
+method_label <- ${quotedMethod}
+if (!requireNamespace("mada", quietly = TRUE)) webr::install("mada", quiet = TRUE)
+suppressPackageStartupMessages(library(mada))
+tp <- ${helpers.rVector(payload.tp)}
+  fp <- ${helpers.rVector(payload.fp)}
+  fn <- ${helpers.rVector(payload.fn)}
+  tn <- ${helpers.rVector(payload.tn)}
+  dat <- data.frame(TP = tp, FP = fp, FN = fn, TN = tn, row.names = paste0("study_", seq_along(tp)))
+  fit <- reitsma(dat)
+  s <- summary(fit, level = 0.95)
+  r_sens <- plogis(s$coefficients["tsens.(Intercept)", "Estimate"])
+  r_spec <- 1 - plogis(s$coefficients["tfpr.(Intercept)", "Estimate"])
+  r_dor <- exp(s$coefficients["tsens.(Intercept)", "Estimate"] + (-s$coefficients["tfpr.(Intercept)", "Estimate"]))
+  d_sens <- abs(r_sens - ${payload.pooledSens})
+  d_spec <- abs(r_spec - ${payload.pooledSpec})
+  d_dor <- abs(r_dor - ${payload.dor})
+  rel_dor <- d_dor / max(${payload.dor}, 1)
+  ok <- d_sens <= 0.01 && d_spec <= 0.01 && rel_dor <= 0.05
+  status_line <- paste0(
+    if (ok) "PASS|" else "FAIL|",
+    sprintf(
+      "method=%s via mada::reitsma; sens diff=%.4f; spec diff=%.4f; DOR diff=%.4f (%.2f%%)",
+      method_label,
+      d_sens,
+      d_spec,
+      d_dor,
+      rel_dor * 100
+    )
+  )
+  cat(status_line)
+  status_line
+  `;
+          },
+        },
+      ],
+  };
+  </script>
+  <script src="webr-reviewer-validation.js?v=20260319"></script>
 </body>
 </html>

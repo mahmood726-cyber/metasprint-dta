@@ -1,20 +1,20 @@
 # Automated open-access evidence discovery for diagnostic test accuracy meta-analysis: the MetaSprint DTA platform
 
 ## Authors
-- Mahmood Ahmad [CORRESPONDING_AUTHOR_PLACEHOLDER]
+- Mahmood Ahmad
 
 ## Affiliations
-[AFFILIATION_PLACEHOLDER]
+Affiliation details to be finalized for submission.
 
 ## Abstract
 
-**Background:** Conducting a diagnostic test accuracy (DTA) meta-analysis typically requires months of manual searching, data extraction, and statistical analysis across disconnected tools. Most primary DTA studies report sensitivity and specificity in open-access abstracts, yet to our knowledge no widely available tool automates the pipeline from database search to bivariate pooled estimates.
+**Background:** Diagnostic test accuracy (DTA) meta-analysis typically requires months of manual searching, extraction, and analysis across disconnected tools. Most DTA studies report sensitivity and specificity in open-access abstracts, yet no widely available tool automates the pipeline from database search to bivariate pooled estimates.
 
-**Methods:** MetaSprint DTA is a browser-based platform that integrates an Open-Access Discovery Pipeline with a bivariate GLMM/HSROC statistical engine. The pipeline searches ClinicalTrials.gov, Europe PMC, OpenAlex, and PubMed in parallel, extracts diagnostic accuracy metrics from abstracts using 30+ patterns with OCR and Unicode preprocessing, and back-calculates 2x2 contingency tables. Pooled sensitivity and specificity are estimated within the same session. Every inclusion/exclusion decision and extracted number is transparent and traceable to source text. The pipeline was validated against 70 published DTA meta-analyses across 13 clinical specialties. Statistical accuracy was cross-validated against R mada 0.5.12 and metafor 4.8.0.
+**Methods:** MetaSprint DTA integrates a four-source Open-Access Discovery Pipeline (ClinicalTrials.gov, Europe PMC, OpenAlex, PubMed) with a bivariate GLMM/HSROC engine. The pipeline extracts accuracy metrics using 30+ patterns with OCR and Unicode preprocessing, back-calculates 2x2 tables, and pools sensitivity and specificity within a single browser session. Every decision and extracted number is traceable to source text. Five clinical decision-support tools (MCID threshold analysis, patient risk calculator, effect-size converter, drapery plot, exclusion sensitivity matrix) bridge statistical output and clinical interpretation. Validation used 70 published DTA meta-analyses across 13 specialties; statistical accuracy was cross-validated against R mada 0.5.12 and metafor 4.8.0.
 
-**Results:** For all 70 validation topics, the automated pipeline produced pooled estimates within 15% of published meta-analysis values (70/70 PASS, 100%). Study counts ranged from k=5 to k=64 across cardiology, infectious disease, oncology, musculoskeletal, gastroenterology, emergency medicine, rheumatology, endocrinology, obstetrics, and more. The pipeline recovered comparable or greater study counts than published reviews: CT-FFR yielded k=42 (published k~30), appendicitis ultrasound k=55 (published k~31), H. pylori urea breath test k=35 (published k~20-30), and thyroid FNA k=41. R cross-validation achieved 33/33 parity for bivariate GLMM, HSROC, heterogeneity, publication bias, and derived measures. A total of 297 automated tests pass with zero failures.
+**Results:** For all 70 topics, pooled estimates fell within 15% of published values (70/70 PASS). Study counts ranged from k=5 to k=64 across cardiology, infectious disease, oncology, musculoskeletal, gastroenterology, and eight other specialties. The pipeline recovered comparable or greater study counts than published reviews (e.g., CT-FFR k=42 vs published ~30, appendicitis US k=55 vs ~31). R cross-validation achieved 33/33 parity across bivariate GLMM, HSROC, heterogeneity, and publication bias. A total of 500 automated tests pass with zero failures.
 
-**Conclusions:** Automated extraction of diagnostic accuracy data from open-access abstracts can produce pooled estimates consistent with published meta-analyses across 70 clinical topics spanning 13 specialties. MetaSprint DTA provides a complete discover-to-synthesis workflow in a single browser session, lowering the barrier to rapid DTA evidence assessments while maintaining statistical rigor validated against R.
+**Conclusions:** Automated extraction from open-access abstracts produces pooled DTA estimates consistent with published meta-analyses across 70 topics in 13 specialties. MetaSprint DTA provides a complete discover-to-synthesis workflow in a single browser session, maintaining statistical rigor validated against R.
 
 ## Keywords
 diagnostic test accuracy; open access; automated extraction; meta-analysis; bivariate model; HSROC; evidence synthesis; browser application
@@ -45,6 +45,7 @@ The central contribution of this paper is not the statistical engine (which impl
 | Cross-validated against R | 33/33 (100%) | Reference | N/A | N/A |
 | Transparent screening | 5-criteria checklist | No | No | No |
 | Extraction traceability | Source text + evidence chain | No | No | No |
+| Clinical decision tools | 5 (MCID, patient risk, converter, drapery, exclusion) | No | No | No |
 
 ## Methods
 
@@ -111,7 +112,7 @@ Studies are auto-selected for pooling only if they meet all criteria: (a) index 
 
 **HSROC model.** The Rutter-Gatsonis model [8] decomposes log-DOR into accuracy (Lambda) and threshold (Theta) components. AUC = Phi(Lambda/sqrt(2)).
 
-**Additional methods.** Ten advanced methods are available: Cook's distance/DFBETAS [9], Copas selection model [10], P-curve (exploratory DTA adaptation) [11], profile likelihood CIs [12], bootstrap BCa [13], LASSO meta-regression [14], decision curve analysis [15], Fagan nomogram, NND with CIs [16], and auto-generated manuscript text.
+**Additional methods.** Fifteen advanced methods are available: Cook's distance/DFBETAS [9], Copas selection model [10], P-curve (exploratory DTA adaptation) [11], profile likelihood CIs [12], bootstrap BCa [13], LASSO meta-regression [14], decision curve analysis [15], Fagan nomogram, NND with CIs [16], and auto-generated manuscript text. Five clinical decision-support tools complement the statistical engine: a drapery plot (Rücker & Schwarzer 2020 [20]) showing the p-value function across hypothesized DOR values; an exclusion sensitivity matrix providing leave-one-out recomputation of pooled sensitivity, specificity, and DOR; a minimum clinically important difference (MCID) threshold analysis comparing pooled estimates and their CIs against user-specified clinical thresholds; a patient risk calculator applying Bayes' theorem to convert pooled likelihood ratios into post-test probabilities at any pretest prevalence; and a DTA effect-size converter enabling interconversion among DOR, PLR, NLR, Youden's J, AUC, and NND.
 
 **Validation infrastructure.** All computations are cross-validated against R mada 0.5.12 [2] and metafor 4.8.0 [17] via an automated Selenium test suite that loads the app, runs analyses, and compares outputs against R-generated reference values.
 
@@ -199,12 +200,14 @@ Methodological note: the app uses REML for between-study variance and t(k-2) CIs
 | Suite | Tests | Purpose |
 |-------|-------|---------|
 | test_oa_discovery.py | 74 | UI rendering, extraction patterns, deduplication |
-| test_advanced_methods.py | 120 | 10 advanced methods + preprocessing + UI + transparency + REML + sub-indication |
+| test_advanced_methods.py | 120 | 15 advanced methods + preprocessing + UI + transparency + REML + sub-indication |
 | test_r_validation.py | 33 | App vs R mada/metafor cross-comparison |
 | test_13_topics.py | 15 | OA Pipeline: 15 common DTA topics |
 | test_post2015_topics.py | 35 | OA Pipeline: 35 additional topics (post-2015 evidence) |
 | test_additional_20_topics.py | 20 | OA Pipeline: 20 wave-3 topics (new specialties) |
-| **Total** | **297** | **All pass (0 failures)** |
+| test_livingmeta_features.py | 101 | 5 ported clinical decision-support tools: drapery plot, exclusion matrix, MCID, patient risk, effect converter |
+| test_edge_cases.py | 102 | Boundary conditions: Fagan nomogram, DCA, MCID thresholds, prevalence extremes, uninformative tests, k=2, math consistency |
+| **Total** | **500** | **All pass (0 failures)** |
 
 ## Use Cases
 
@@ -242,6 +245,16 @@ A review team maintaining a living review on COVID-19 rapid antigen tests:
 4. Examine Copas selection model for publication bias (adjusted vs unadjusted)
 5. Generate updated Methods/Results text with confidence intervals
 
+### Use case 4: Clinical threshold assessment
+
+A guideline panel evaluating whether troponin meets an acceptable diagnostic threshold for acute myocardial infarction:
+
+1. Run the pipeline for "acute coronary syndrome + troponin" (k=26 studies)
+2. Open the MCID Threshold Analysis, set minimum sensitivity to 90% and minimum specificity to 70%
+3. The tool reports whether the pooled estimate and its entire 95% CI exceed the clinical thresholds
+4. Use the Patient Risk Calculator: at 15% pretest probability (typical emergency department), the post-test probability given a positive result exceeds 80% (exact value depends on the studies retrieved)
+5. Use the Effect Size Converter to express the DOR as Youden's J and NND for the clinical audience
+
 ## Discussion
 
 The central finding is that automated extraction from open-access abstracts can produce pooled DTA estimates that match published meta-analyses across 70 diverse topics. This has practical implications:
@@ -276,12 +289,12 @@ The 70-topic validation demonstrates this: despite extracting only from abstract
 
 ## Conclusions
 
-MetaSprint DTA demonstrates that the discover-extract-analyze pipeline for DTA meta-analysis can be automated using open-access abstracts, producing pooled estimates consistent with published systematic reviews across all 70 clinical topics evaluated. The platform provides a practical tool for rapid evidence assessments, living review updates, and DTA methods education, while maintaining statistical accuracy validated against R mada and metafor with 297 automated tests and zero failures.
+MetaSprint DTA demonstrates that the discover-extract-analyze pipeline for DTA meta-analysis can be automated using open-access abstracts, producing pooled estimates consistent with published systematic reviews across all 70 clinical topics evaluated. Five clinical decision-support tools (MCID threshold analysis, patient risk calculator, effect-size converter, drapery plot, and exclusion sensitivity matrix) bridge the gap between statistical output and clinical interpretation. The platform provides a practical tool for rapid evidence assessments, living review updates, and DTA methods education, while maintaining statistical accuracy validated against R mada and metafor with 500 automated tests and zero failures.
 
 ## Software Availability
 
 - Source code: https://github.com/mahmood726-cyber/metasprint-dta
-- Archived version: [ZENODO_DOI_PLACEHOLDER]
+- Archived version: Pending tagged GitHub release and Zenodo archive
 - License: MIT
 - Version: March 2026
 - Requirements: Modern web browser (Chrome, Firefox, Edge, Safari)
@@ -334,3 +347,4 @@ The author acknowledges the developers of R packages mada, metafor, and PropCIs 
 17. Viechtbauer W. Conducting meta-analyses in R with the metafor package. J Stat Softw. 2010;36(3):1-48.
 18. Harbord RM, Deeks JJ, Egger M, et al. A unification of models for meta-analysis of diagnostic accuracy studies. Biostatistics. 2007;8(2):239-251.
 19. Deeks JJ, Macaskill P, Irwig L. The performance of tests of publication bias and other sample size effects in systematic reviews of diagnostic test accuracy was assessed. J Clin Epidemiol. 2005;58(9):882-893.
+20. Rücker G, Schwarzer G. Beyond the forest plot: the drapery plot. Res Synth Methods. 2021;12(1):13-19.
