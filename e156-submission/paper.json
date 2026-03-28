@@ -1,0 +1,96 @@
+{
+  "title": "MetaSprint DTA: Automated Open-Access Discovery for Diagnostic Test Accuracy Meta-Analysis",
+  "slug": "metasprint-dta",
+  "author": "Mahmood Ahmad",
+  "date": "2026-03-26",
+  "body": "Can automated extraction from open-access abstracts produce pooled diagnostic accuracy estimates consistent with published meta-analyses across diverse specialties? MetaSprint DTA integrates a four-source discovery pipeline searching ClinicalTrials.gov, Europe PMC, OpenAlex, and PubMed with a bivariate GLMM and HSROC engine in a single browser application requiring no installation. The pipeline extracts sensitivity, specificity, and sample sizes using over 30 regex patterns with Unicode preprocessing, back-calculates two-by-two tables, and pools estimates within one session. Across 70 published DTA meta-analyses spanning 13 specialties, all pooled estimates fell within 15 percent of published values with study counts frequently exceeding published reviews, and R cross-validation achieved 33 of 33 parity against mada and metafor. Advanced diagnostics include Cook distance, DFBETAS, Copas selection model, profile-likelihood confidence intervals, and bootstrap BCa intervals. The platform bridges the months-long gap between clinical question and pooled diagnostic accuracy estimate. However, a limitation is that abstract-only extraction cannot capture studies reporting accuracy metrics solely in full-text tables.",
+  "word_count": 156,
+  "sentence_count": 7,
+  "sentences": [
+    {
+      "role": "Question",
+      "text": "Can automated extraction from open-access abstracts produce pooled diagnostic accuracy estimates consistent with published meta-analyses across diverse specialties?"
+    },
+    {
+      "role": "Dataset",
+      "text": "MetaSprint DTA integrates a four-source discovery pipeline searching ClinicalTrials.gov, Europe PMC, OpenAlex, and PubMed with a bivariate GLMM and HSROC engine in a single browser application requiring no installation."
+    },
+    {
+      "role": "Method",
+      "text": "The pipeline extracts sensitivity, specificity, and sample sizes using over 30 regex patterns with Unicode preprocessing, back-calculates two-by-two tables, and pools estimates within one session."
+    },
+    {
+      "role": "Primary result",
+      "text": "Across 70 published DTA meta-analyses spanning 13 specialties, all pooled estimates fell within 15 percent of published values with study counts frequently exceeding published reviews, and R cross-validation achieved 33 of 33 parity against mada and metafor."
+    },
+    {
+      "role": "Robustness",
+      "text": "Advanced diagnostics include Cook distance, DFBETAS, Copas selection model, profile-likelihood confidence intervals, and bootstrap BCa intervals."
+    },
+    {
+      "role": "Interpretation",
+      "text": "The platform bridges the months-long gap between clinical question and pooled diagnostic accuracy estimate."
+    },
+    {
+      "role": "Boundary",
+      "text": "However, a limitation is that abstract-only extraction cannot capture studies reporting accuracy metrics solely in full-text tables."
+    }
+  ],
+  "notes": {
+    "app": "MetaSprint DTA v1.0",
+    "data": "70 published DTA meta-analyses across 13 specialties",
+    "code": "https://github.com/mahmood726-cyber/metasprint-dta",
+    "doi": "",
+    "version": "1.0",
+    "date": "2026-03-26",
+    "validation": "DRAFT"
+  },
+  "type": "methods",
+  "primary_estimand": "Pooled sensitivity and specificity",
+  "validation": {
+    "status": "fail",
+    "checks": [
+      {
+        "name": "single paragraph",
+        "ok": true,
+        "detail": "Body must not contain blank-line paragraph breaks."
+      },
+      {
+        "name": "sentence count",
+        "ok": true,
+        "detail": "Found 7 sentences."
+      },
+      {
+        "name": "word count",
+        "ok": true,
+        "detail": "Found 156 words."
+      },
+      {
+        "name": "no headings",
+        "ok": true,
+        "detail": "No markdown headings allowed in body."
+      },
+      {
+        "name": "no links",
+        "ok": true,
+        "detail": "No links or DOI links allowed in body."
+      },
+      {
+        "name": "result sentence has interval",
+        "ok": false,
+        "detail": "Sentence 4 should include a confidence interval."
+      },
+      {
+        "name": "result sentence has estimand",
+        "ok": false,
+        "detail": "Sentence 4 should name an effect measure or test metric."
+      },
+      {
+        "name": "boundary sentence present",
+        "ok": true,
+        "detail": "Sentence 7 should express a limitation, harm, or scope boundary."
+      }
+    ]
+  },
+  "schema": "e156-v0.2"
+}

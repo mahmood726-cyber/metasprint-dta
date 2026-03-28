@@ -1,0 +1,57 @@
+{
+  "title": "MetaSprint DTA: Automated Open-Access Discovery for Diagnostic Test Accuracy Meta-Analysis",
+  "slug": "metasprint-dta",
+  "author": "Mahmood Ahmad",
+  "date": "2026-03-26",
+  "path": "C:\\Projects\\metasprint-dta",
+  "type": "methods",
+  "primary_estimand": "Pooled sensitivity and specificity",
+  "summary": "A browser application automating diagnostic accuracy meta-analysis from four open-access sources, validated against 70 published DTA reviews across 13 specialties.",
+  "body": "Can automated extraction from open-access abstracts produce pooled diagnostic accuracy estimates consistent with published meta-analyses across diverse specialties? MetaSprint DTA integrates a four-source discovery pipeline searching ClinicalTrials.gov, Europe PMC, OpenAlex, and PubMed with a bivariate GLMM and HSROC engine in a single browser application requiring no installation. The pipeline extracts sensitivity, specificity, and sample sizes using over 30 regex patterns with Unicode preprocessing, back-calculates two-by-two tables, and pools estimates within one session. Across 70 published DTA meta-analyses spanning 13 specialties, all pooled estimates fell within 15 percent of published values with study counts frequently exceeding published reviews, and R cross-validation achieved 33 of 33 parity against mada and metafor. Advanced diagnostics include Cook distance, DFBETAS, Copas selection model, profile-likelihood confidence intervals, and bootstrap BCa intervals. The platform bridges the months-long gap between clinical question and pooled diagnostic accuracy estimate. However, a limitation is that abstract-only extraction cannot capture studies reporting accuracy metrics solely in full-text tables.",
+  "sentences": [
+    {
+      "role": "Question",
+      "text": "Can automated extraction from open-access abstracts produce pooled diagnostic accuracy estimates consistent with published meta-analyses across diverse specialties?"
+    },
+    {
+      "role": "Dataset",
+      "text": "MetaSprint DTA integrates a four-source discovery pipeline searching ClinicalTrials.gov, Europe PMC, OpenAlex, and PubMed with a bivariate GLMM and HSROC engine in a single browser application requiring no installation."
+    },
+    {
+      "role": "Method",
+      "text": "The pipeline extracts sensitivity, specificity, and sample sizes using over 30 regex patterns with Unicode preprocessing, back-calculates two-by-two tables, and pools estimates within one session."
+    },
+    {
+      "role": "Primary result",
+      "text": "Across 70 published DTA meta-analyses spanning 13 specialties, all pooled estimates fell within 15 percent of published values with study counts frequently exceeding published reviews, and R cross-validation achieved 33 of 33 parity against mada and metafor."
+    },
+    {
+      "role": "Robustness",
+      "text": "Advanced diagnostics include Cook distance, DFBETAS, Copas selection model, profile-likelihood confidence intervals, and bootstrap BCa intervals."
+    },
+    {
+      "role": "Interpretation",
+      "text": "The platform bridges the months-long gap between clinical question and pooled diagnostic accuracy estimate."
+    },
+    {
+      "role": "Boundary",
+      "text": "However, a limitation is that abstract-only extraction cannot capture studies reporting accuracy metrics solely in full-text tables."
+    }
+  ],
+  "notes": {
+    "app": "MetaSprint DTA v1.0",
+    "data": "70 published DTA meta-analyses across 13 specialties",
+    "code": "https://github.com/mahmood726-cyber/metasprint-dta",
+    "doi": "",
+    "version": "1.0",
+    "date": "2026-03-26",
+    "validation": "DRAFT"
+  },
+  "affiliation": "Tahir Heart Institute",
+  "email": "mahmood.ahmad2@nhs.net",
+  "references": [
+    "Reitsma JB, Glas AS, Rutjes AW, et al. Bivariate analysis of sensitivity and specificity produces informative summary measures in diagnostic reviews. J Clin Epidemiol. 2005;58(10):982-990.",
+    "Macaskill P, Gatsonis C, Deeks JJ, Harbord RM, Takwoingi Y. Cochrane Handbook for Systematic Reviews of Diagnostic Test Accuracy. Cochrane; 2023.",
+    "Borenstein M, Hedges LV, Higgins JPT, Rothstein HR. Introduction to Meta-Analysis. 2nd ed. Wiley; 2021."
+  ]
+}
