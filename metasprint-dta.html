@@ -14999,7 +14999,7 @@ body.dark-mode .oa-detail-panel .oa-abstract-text mark { background: #854d0e; co
           html += '</p>';
           influenceEl.innerHTML = html;
         } else {
-          influenceEl.innerHTML = '<h4>Influence Diagnostics</h4><p style="font-size:0.82rem;color:var(--text-muted)">' + (inflResult?.error || 'Not available') + '</p>';
+          influenceEl.innerHTML = '<h4>Influence Diagnostics</h4><p style="font-size:0.82rem;color:var(--text-muted)">' + escapeHtml(inflResult?.error || 'Not available') + '</p>';
         }
       } catch (e) { console.error('Influence diagnostics:', e); influenceEl.innerHTML = ''; }
     }
