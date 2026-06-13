@@ -10,7 +10,8 @@ keyboard shortcuts (P2-5), PRISMA full-text stage (P2-13),
 protocol sync (P2-17), R export CC (P2-12).
 """
 import sys, io, os, time, json
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if "pytest" not in sys.modules:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By

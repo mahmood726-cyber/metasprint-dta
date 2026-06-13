@@ -8,7 +8,8 @@ Al-Khayal (2007): Sens 83.7%, Spec 95.9%
 van Randen (2008): Sens 78%, Spec 83%
 """
 import sys, os, json, time, io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if "pytest" not in sys.modules:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options

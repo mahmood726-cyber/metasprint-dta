@@ -9,7 +9,8 @@ Strategy: intercepts downloadFile() to capture output instead of triggering
 actual file downloads, then validates content in-memory.
 """
 import sys, io, os, time, json
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if "pytest" not in sys.modules:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By

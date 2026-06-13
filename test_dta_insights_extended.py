@@ -8,7 +8,8 @@ Radar (opportunities), Registry (canonical linking).
 Uses BNP dataset (k=6) and mock universeTrialsCache for universe-dependent tabs.
 """
 import sys, io, os, time, json
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if "pytest" not in sys.modules:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By

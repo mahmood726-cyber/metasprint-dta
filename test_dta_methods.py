@@ -5,7 +5,8 @@ Tests method agreement, HSROC-specific outputs (AUC, Lambda, Theta),
 Deeks funnel, threshold effect, LOO, and confidence level changes.
 """
 import sys, io, os, time, json
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if "pytest" not in sys.modules:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By

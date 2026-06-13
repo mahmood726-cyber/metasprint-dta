@@ -2,7 +2,8 @@
 """End-to-end test: OA Discovery for PSMA PET/CT in prostate cancer.
 Runs the full pipeline, captures results, and compares against known published data."""
 import sys, os, json, time, io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if "pytest" not in sys.modules:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options

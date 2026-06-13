@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 """15-topic OA Discovery validation — compare pooled bivariate results to published meta-analyses."""
 import sys, os, json, time, io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if "pytest" not in sys.modules:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 

@@ -5,7 +5,8 @@ Tests addStudyRow with DTA fields, zero-cell handling, field editing,
 minimum study requirements, and QUADAS-2 domain storage.
 """
 import sys, io, os, time, json
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if "pytest" not in sys.modules:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By

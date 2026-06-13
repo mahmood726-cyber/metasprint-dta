@@ -4,7 +4,8 @@ Published reference: Li et al (2016): Sens 89%, Spec 71% (k=5)
 Gonzalez-Doncel (2022): Sens 88%, Spec 80%
 """
 import sys, os, json, time, io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if "pytest" not in sys.modules:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options

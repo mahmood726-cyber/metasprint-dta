@@ -8,7 +8,8 @@ rho sensitivity fix (B1), SROC tooltips (Q2), cumulative error handling (Q9),
 bivariate meta-regression (Q16), aria-controls (Q17).
 """
 import sys, io, os, time, json, tempfile
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if "pytest" not in sys.modules:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By

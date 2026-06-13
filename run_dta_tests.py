@@ -7,7 +7,8 @@ Exit code 0 if all pass, 1 otherwise.
 """
 import sys, io, os, time, subprocess, re
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if "pytest" not in sys.modules:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 PYTHON = sys.executable
 
